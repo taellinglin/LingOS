@@ -1,0 +1,5 @@
+[project]
+name = "lingos-kernel-rpi"
+version = "0.1.0"
+entry = "main.ling"
+kind = "kernel"

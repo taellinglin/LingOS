@@ -1,0 +1,9 @@
+// LingOS — minimal aarch64 (Raspberry Pi) kernel entry point.
+// Same ling_kernel_* intrinsic names as the x86_64 target; ling-kernel routes
+// them to the PL011 UART instead of VGA/COM1 underneath.
+bind start = do {
+    ling_kernel_init()
+    ling_kernel_vga_write_str("LingOS aarch64 (Raspberry Pi)\n")
+    ling_kernel_vga_write_str("basic kernel booted.\n")
+    asm!("wfi")
+}

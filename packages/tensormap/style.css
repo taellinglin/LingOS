@@ -1,0 +1,33 @@
+@font-face {
+    font-family: "o";
+    src: url('./o.otf') format("opentype");
+}
+* {
+    font-family: "o";
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+  
+  body {
+    font-family: "o";
+    background-color: #000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+  }
+  
+  #game {
+    font-family: "o", monospace;
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  
+  canvas {
+    border: 1px solid white;
+  }
+  

@@ -1,0 +1,46 @@
+// LingOS window manager -- interactive milestone: a real event loop, a
+// rendered mouse cursor that tracks the PS/2 mouse, and a window you can
+// drag by holding the left button anywhere over it. Draws into
+// framebuffer.rs's back buffer and blits once per frame
+// (ling_kernel_fb_present) rather than drawing shapes straight into the
+// live framebuffer -- that tore visibly on every frame once anything moved
+// (confirmed by an actual screendump catching a mid-redraw frame).
+bind start = do {
+    ling_kernel_init()
+    ling_kernel_mouse_init()
+
+    bind avail = ling_kernel_fb_available()
+    if avail == 0 {
+        ling_kernel_vga_write_str("no framebuffer -- wm needs graphics mode\n")
+    } else {
+        bind fb_w = ling_kernel_fb_width()
+        bind fb_h = ling_kernel_fb_height()
+        ling_kernel_mouse_set_bounds(fb_w, fb_h)
+
+        bind ww = 320
+        bind wh = 200
+        bind titlebar_h = 24
+
+        while 1 == 1 {
+            ling_kernel_mouse_poll()
+            bind mx = ling_kernel_mouse_x()
+            bind my = ling_kernel_mouse_y()
+            bind buttons = ling_kernel_mouse_buttons()
+            bind left_down = buttons % 2
+
+            // No conditional-expression construct in Ling, and a `bind`
+            // inside an if/else doesn't escape it for use afterward -- so
+            // "wx is 100 normally, mx-40 while dragging" has to be one
+            // arithmetic expression, not a branch. `left_down` is exactly
+            // 0 or 1, so one term always zeroes out.
+            bind wx = 100 * (1 - left_down) + (mx - 40) * left_down
+            bind wy = 100 * (1 - left_down) + (my - 12) * left_down
+
+            ling_kernel_fb_back_clear(2236962)
+            ling_kernel_fb_back_fill_rect(wx, wy, ww, wh, 3618615)
+            ling_kernel_fb_back_fill_rect(wx, wy, ww, titlebar_h, 1710757)
+            ling_kernel_fb_back_fill_rect(mx, my, 8, 8, 16777215)
+            ling_kernel_fb_present()
+        }
+    }
+}

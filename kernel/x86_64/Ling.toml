@@ -1,0 +1,5 @@
+[project]
+name = "lingos-kernel-x86_64"
+version = "0.1.0"
+entry = "main.ling"
+kind = "kernel"

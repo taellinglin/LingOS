@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LinUX-AHO 2.0</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="game">
+    <canvas id="gameCanvas"></canvas>
+    <div id="overlay">
+      <div id="labelBar">
+        <span class="label red">Assumption</span>
+        <span class="label blue">Hypothesis</span>
+        <span class="label white">Operation</span>
+      </div>
+      <div id="toggle">
+        <button id="btnA" data-mode="A">A</button>
+        <button id="btnH" data-mode="H">H</button>
+        <button id="btnO" data-mode="O">O</button>
+      </div>
+      <textarea id="inputArea" placeholder="Type your message..."></textarea>
+      <div id="pinnedArea"></div>
+      <div id="messagesArea"></div>
+    </div>
+  </div>
+  <script src="script.js"></script>
+  <script src="aho.js"></script>
+</body>
+</html>

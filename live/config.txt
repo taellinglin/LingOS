@@ -1,0 +1,8 @@
+# LingOS Raspberry Pi boot config (goes on the FAT32 boot partition alongside
+# the official RPi firmware blobs — bootcode.bin/start*.elf/fixup*.dat — which
+# this repo does not bundle; fetch them from the Raspberry Pi Foundation's
+# public `firmware` repo to match your board).
+arm_64bit=1
+kernel=kernel8.img
+enable_uart=1
+uart_2ndstage=1

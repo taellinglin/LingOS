@@ -1,0 +1,232 @@
+// LingOS — minimal x86_64 kernel entry point: a colorful boot banner
+// followed by a real (if basic) command shell over lingfs.
+//
+// F1-F4 switch between 4 independent terminal screens (see ling-kernel's
+// term.rs); leave the keyboard idle for a while and the console font swaps
+// to font/square.otf (see ling-kernel's vga.rs/keyboard.rs), and switches
+// back the moment you press a key or move the mouse — both features are
+// transparent to this shell, handled entirely by the keyboard/mouse driver.
+bind start = do {
+    ling_kernel_init()
+    ling_kernel_mouse_init()
+
+    ling_kernel_vga_set_color(12, 0)
+    ling_kernel_vga_write_str("#       ######  #    #   ####    ####    #### \n")
+    ling_kernel_vga_set_color(14, 0)
+    ling_kernel_vga_write_str("#         ##    ##   #  #       #    #  #     \n")
+    ling_kernel_vga_set_color(10, 0)
+    ling_kernel_vga_write_str("#         ##    # #  #  # ###   #    #   #### \n")
+    ling_kernel_vga_set_color(11, 0)
+    ling_kernel_vga_write_str("#         ##    #  # #  #    #  #    #       #\n")
+    ling_kernel_vga_set_color(9, 0)
+    ling_kernel_vga_write_str("#         ##    #   ##  #    #  #    #  #    #\n")
+    ling_kernel_vga_set_color(13, 0)
+    ling_kernel_vga_write_str("######  ######  #    #   ####    ####    #### \n")
+    ling_kernel_vga_set_color(7, 0)
+    ling_kernel_vga_write_str("        ")
+    ling_kernel_vga_write_char(1)
+    ling_kernel_vga_write_str(" a basic OS, made in Ling ")
+    ling_kernel_vga_write_char(2)
+    ling_kernel_vga_write_char(3)
+    ling_kernel_vga_write_str("\n")
+    ling_kernel_vga_set_color(10, 0)
+    ling_kernel_vga_write_str("F1-F4 switch terminals -- idle a while for a surprise\n\n")
+    ling_kernel_vga_set_color(7, 0)
+
+    bind fs_ok = ling_kernel_fs_mount()
+    if fs_ok == 1 {
+        ling_kernel_vga_set_color(10, 0)
+        ling_kernel_vga_write_str("lingfs mounted\n")
+    } else {
+        ling_kernel_vga_set_color(4, 0)
+        ling_kernel_vga_write_str("lingfs mount FAILED\n")
+    }
+    ling_kernel_vga_set_color(7, 0)
+    ling_kernel_vga_write_str("type 'help' for commands\n\n")
+
+    while 1 == 1 {
+        // A two-line, segmented prompt: path in red, user in light blue,
+        // hostname in light green, punctuation in light grey.
+        ling_kernel_vga_set_color(4, 0)
+        ling_kernel_vga_write_str("/")
+        bind cwd = ling_kernel_cwd()
+        ling_kernel_print_lstr(cwd)
+        ling_kernel_vga_write_str("\n")
+        ling_kernel_vga_set_color(9, 0)
+        bind who = ling_kernel_whoami()
+        ling_kernel_print_lstr(who)
+        ling_kernel_vga_set_color(7, 0)
+        ling_kernel_vga_write_str("@")
+        ling_kernel_vga_set_color(10, 0)
+        bind hn = ling_kernel_fs_read("/hostname")
+        if len(hn) == 0 {
+            ling_kernel_vga_write_str("lingos")
+        } else {
+            ling_kernel_print_lstr(hn)
+        }
+        ling_kernel_vga_set_color(7, 0)
+        ling_kernel_vga_write_str("> ")
+
+        bind line = ling_kernel_read_line()
+        bind cmd = ling_kernel_str_cmd(line)
+        bind arg = ling_kernel_str_arg(line)
+
+        if cmd == "help" {
+            ling_kernel_vga_write_str("Available commands:\n")
+            ling_kernel_vga_write_str("  help                    clear                   ls\n")
+            ling_kernel_vga_write_str("  cat <name>              write <name> <text>     hostname\n")
+            ling_kernel_vga_write_str("  cd <dir>                whoami                  about\n")
+            ling_kernel_vga_write_str("  useradd                 login                   passwd\n")
+            ling_kernel_vga_write_str("  groupmod <user> <group> pkginstall <blob>        selftest\n")
+            ling_kernel_vga_write_str("  theme dark|light         ling-life\n")
+        } else {
+        if cmd == "clear" {
+            ling_kernel_vga_clear()
+        } else {
+        if cmd == "ls" {
+            ling_kernel_fs_ls(arg)
+        } else {
+        if cmd == "cat" {
+            bind content = ling_kernel_fs_read(arg)
+            ling_kernel_print_lstr(content)
+            ling_kernel_vga_write_str("\n")
+        } else {
+        if cmd == "write" {
+            bind wname = ling_kernel_str_cmd(arg)
+            bind wcontent = ling_kernel_str_arg(arg)
+            ling_kernel_fs_write(wname, wcontent)
+            ling_kernel_vga_write_str("ok\n")
+        } else {
+        if cmd == "hostname" {
+            bind hn2 = ling_kernel_fs_read("/hostname")
+            if len(hn2) == 0 {
+                ling_kernel_vga_write_str("lingos\n")
+            } else {
+                ling_kernel_print_lstr(hn2)
+                ling_kernel_vga_write_str("\n")
+            }
+        } else {
+        if cmd == "cd" {
+            bind cd_ok = ling_kernel_cd(arg)
+            if cd_ok == 0 {
+                ling_kernel_vga_write_str("cd: no such directory\n")
+            } else {
+                ling_kernel_vga_write_str("")
+            }
+        } else {
+        if cmd == "whoami" {
+            bind who2 = ling_kernel_whoami()
+            ling_kernel_print_lstr(who2)
+            ling_kernel_vga_write_str("\n")
+        } else {
+        if cmd == "useradd" {
+            ling_kernel_vga_write_str("Username: ")
+            bind u_username = ling_kernel_read_line()
+            ling_kernel_vga_write_str("Password: ")
+            bind u_password = ling_kernel_read_line_masked()
+            ling_kernel_vga_write_str("First name: ")
+            bind u_first = ling_kernel_read_line()
+            ling_kernel_vga_write_str("Last name: ")
+            bind u_last = ling_kernel_read_line()
+            ling_kernel_vga_write_str("Phone: ")
+            bind u_phone = ling_kernel_read_line()
+            ling_kernel_vga_write_str("Email: ")
+            bind u_email = ling_kernel_read_line()
+            ling_kernel_vga_write_str("Group [users]: ")
+            bind u_group = ling_kernel_read_line()
+            bind u_ok = ling_kernel_user_create(u_username, u_password, u_first, u_last, u_phone, u_email, u_group)
+            if u_ok == 1 {
+                ling_kernel_vga_write_str("user created\n")
+            } else {
+                ling_kernel_vga_write_str("useradd failed\n")
+            }
+        } else {
+        if cmd == "login" {
+            ling_kernel_vga_write_str("Username: ")
+            bind l_username = ling_kernel_read_line()
+            ling_kernel_vga_write_str("Password: ")
+            bind l_password = ling_kernel_read_line_masked()
+            bind l_ok = ling_kernel_user_login(l_username, l_password)
+            if l_ok == 1 {
+                ling_kernel_vga_write_str("login ok\n")
+            } else {
+                ling_kernel_vga_write_str("login failed\n")
+            }
+        } else {
+        if cmd == "passwd" {
+            ling_kernel_vga_write_str("Username: ")
+            bind p_username = ling_kernel_read_line()
+            ling_kernel_vga_write_str("New password: ")
+            bind p_password = ling_kernel_read_line_masked()
+            bind p_ok = ling_kernel_user_set_password(p_username, p_password)
+            if p_ok == 1 {
+                ling_kernel_vga_write_str("password changed\n")
+            } else {
+                ling_kernel_vga_write_str("passwd failed (no such user?)\n")
+            }
+        } else {
+        if cmd == "groupmod" {
+            bind gm_username = ling_kernel_str_cmd(arg)
+            bind gm_group = ling_kernel_str_arg(arg)
+            bind gm_ok = ling_kernel_user_set_group(gm_username, gm_group)
+            if gm_ok == 1 {
+                ling_kernel_vga_write_str("group changed\n")
+            } else {
+                ling_kernel_vga_write_str("groupmod failed (no such user?)\n")
+            }
+        } else {
+        if cmd == "pkginstall" {
+            bind pkg_ok = ling_kernel_pkg_install(arg)
+            if pkg_ok == 1 {
+                ling_kernel_vga_write_str("installed (see: ls packages)\n")
+            } else {
+                ling_kernel_vga_write_str("pkginstall failed (bad/missing .lpkg blob)\n")
+            }
+        } else {
+        if cmd == "ling-life" {
+            ling_kernel_life_run()
+        } else {
+        if cmd == "about" {
+            ling_kernel_vga_write_str("LingOS -- a basic OS, made in Ling\n")
+        } else {
+        if cmd == "selftest" {
+            bind ok = ling_kernel_fs_selftest()
+            if ok == 1 {
+                ling_kernel_vga_write_str("selftest: PASS\n")
+            } else {
+                ling_kernel_vga_write_str("selftest: FAIL\n")
+            }
+        } else {
+        if cmd == "theme" {
+            if arg == "light" {
+                ling_kernel_theme_light()
+            } else {
+                ling_kernel_theme_dark()
+            }
+        } else {
+        if cmd == "" {
+            ling_kernel_vga_write_str("")
+        } else {
+            ling_kernel_vga_write_str("unknown command: ")
+            ling_kernel_print_lstr(cmd)
+            ling_kernel_vga_write_str(" (try 'help')\n")
+        }
+        }
+        }
+        }
+        }
+        }
+        }
+        }
+        }
+        }
+        }
+        }
+        }
+        }
+        }
+        }
+        }
+        }
+    }
+}
