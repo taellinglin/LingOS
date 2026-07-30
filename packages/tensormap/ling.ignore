@@ -1,0 +1,7 @@
+# Consulted by `lingfu publish` (its tarball builder isn't .gitignore-aware
+# at all -- it walks the real filesystem). x.wav/y.wav are 174MB/99MB local
+# background-audio assets, already excluded from git via the repo-root
+# .gitignore; this keeps them out of a publish upload too, even if they're
+# sitting in this folder locally when `lingfu publish` runs.
+x.wav
+y.wav

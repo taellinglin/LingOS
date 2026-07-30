@@ -14,6 +14,18 @@ live/.isoroot*/
 packages/tensormap/x.wav
 packages/tensormap/y.wav
 
+# lingfu seed keyfile -- this derives the encryption key for seed.wav's
+# integrity manifest (see `lingfu seed --help`); it's the root of trust,
+# not something to publish alongside the thing it's meant to protect.
+.moon-salt
+
+# Shamir recovery shares for the above -- any 2 of 3 reconstruct the key
+# without .moon-salt. Move each file to a genuinely separate location
+# (they're only useless to a thief while they're apart); this folder is
+# just where `lingfu seed --recover-init` wrote them, not where they
+# should end up living.
+.moon-salt-recovery/
+
 # Editor/OS cruft.
 .DS_Store
 Thumbs.db

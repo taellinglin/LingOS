@@ -1,0 +1,9 @@
+[灵符]
+名 = "tensormap"
+版 = "2030.0.0"
+道 = "2030"
+型 = "网灵"
+描述 = "Browser canvas/JS visual-effects demo: Conway's Game of Life with 4-fold mirror symmetry, matrix rain, and rotating galaxy effects. Styling reference for LingOS's `ling-life` VGA screensaver."
+
+[灵者]
+灵林 = { 邮 = "taellinglin@gmail.com" }

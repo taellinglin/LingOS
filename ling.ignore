@@ -1,0 +1,9 @@
+# Consulted by `lingfu seed` and `lingfu publish` -- keep keyfiles,
+# recovery shares, and other sensitive local-only files out of both, in
+# one place. One glob pattern per line.
+.moon-salt
+seed.wav
+seed-recovery-*.share
+*.share
+*.key
+*.pem
