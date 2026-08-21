@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  boot-test:
+    # "Compiles cleanly" is necessary and not sufficient for a kernel — this
+    # job builds both LingOS kernels, packages them the same way a real
+    # release does (GRUB ISO / SD card image), and actually boots each one
+    # in QEMU, asserting on serial markers that only appear once the shell
+    # is genuinely up (see live/boot-test.sh). A kernel that compiles but
+    # triple-faults looks identical to a working one until something checks.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout LingOS
+        uses: actions/checkout@v4
+        with:
+          path: ling-os
+
+      - name: Checkout Ling compiler
+        uses: actions/checkout@v4
+        with:
+          repository: taellinglin/Ling
+          path: ling-lang
+
+      - name: Install system toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            nasm qemu-system-x86 qemu-system-arm xorriso mtools \
+            grub-pc-bin grub-common gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+
+      - name: Install Rust toolchains
+        run: |
+          rustup toolchain install stable nightly --profile minimal
+          rustup default stable
+          rustup target add x86_64-unknown-none aarch64-unknown-none --toolchain nightly
+          rustup component add rust-src --toolchain nightly
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ling-lang/target
+            ling-os/kernel/*/.ling-build
+          key: ${{ runner.os }}-cargo-${{ hashFiles('ling-lang/Cargo.lock') }}
+
+      - name: Build ling compiler
+        working-directory: ling-lang
+        run: cargo build --release --bin ling
+
+      - name: Build x86_64 Live + Install kernels
+        working-directory: ling-os
+        run: |
+          LING=../ling-lang/target/release/ling
+          $LING build kernel/x86_64 --platform kernel --out dist
+          $LING build kernel/x86_64-installer --platform kernel --out dist
+
+      - name: Build aarch64 (Raspberry Pi) kernel
+        working-directory: ling-os
+        run: ../ling-lang/target/release/ling build kernel/rpi --platform rpi --out dist
+
+      - name: Package x86_64 GRUB ISO
+        working-directory: ling-os
+        run: bash live/build-iso-x86_64.sh
+
+      - name: Boot both kernels in QEMU and assert on serial markers
+        working-directory: ling-os
+        run: bash live/boot-test.sh
+
+      - name: Upload boot artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lingos-boot-artifacts
+          path: |
+            ling-os/dist/lingos-x86_64.iso
+            ling-os/dist/rpi/kernel8.img
+          retention-days: 7

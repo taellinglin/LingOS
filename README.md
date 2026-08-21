@@ -21,7 +21,7 @@ follow-up — see "Raspberry Pi 5 caveat" below).
   16 slots a cell picks), so retheming is "define a different 16-entry
   RGB table and call `apply_theme`," not a font/asset swap.
 - 4 virtual terminals (`term0`-`term3`), switchable with F1-F4 (x86_64
-  only — see `ling/crates/ling-kernel/src/term.rs`).
+  only — see `ling/crates/ling-kernel/src/drivers/term.rs`).
 - A build-time font pipeline: drop an `.otf`/`.ttf` in `font/` and it gets
   rasterized into the VGA console's character generator. Leave the
   keyboard idle for a while and the console swaps to it.
@@ -117,7 +117,7 @@ board's revision; they're not bundled here.
 
 ### Raspberry Pi 5 caveat
 
-The aarch64 HAL (`ling-kernel`'s `uart.rs`/`mmio.rs`) targets the
+The aarch64 HAL (`ling-kernel`'s `drivers/uart.rs`/`arch/aarch64/mmio.rs`) targets the
 BCM2837/BCM2711 (Pi 3/4) peripheral memory map, which is also what QEMU's
 `raspi3b` emulates — the fast dev-loop target. Real Pi 5 hardware
 (BCM2712) puts GPIO/UART behind a different chip (RP1, attached over
@@ -129,7 +129,7 @@ on a real Pi 3/4.
 
 ## Architecture notes
 
-- **x86_64 boot chain**: GRUB (Multiboot2) → `ling-kernel`'s `boot32.rs`
+- **x86_64 boot chain**: GRUB (Multiboot2) → `ling-kernel`'s `arch/x86_64/boot.rs`
   (a hand-written 32-bit→64-bit long mode trampoline: GRUB's Multiboot2
   handoff lands in 32-bit protected mode with paging off *even for a
   64-bit ELF* — that's the spec, not a GRUB quirk — so this sets up
@@ -137,7 +137,7 @@ on a real Pi 3/4.
   before it's safe to run any Rust-compiled code) → the generated
   per-project `kernel_entry()` → your `.ling` program's `__main__`.
 - **aarch64 boot chain**: RPi firmware loads `kernel8.img` (a raw binary,
-  no ELF loader) at a fixed address → `ling-kernel`'s `boot.rs` (parks
+  no ELF loader) at a fixed address → `ling-kernel`'s `arch/aarch64/boot.rs` (parks
   secondary cores, sets the stack pointer, zeroes `.bss` — raw binary
   loading has no ELF program headers to do that for you) →
   `kernel_entry()` → `__main__`.

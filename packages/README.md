@@ -22,7 +22,7 @@ before those foundations exist would just mean rebuilding it once they do.
    verified in QEMU and real VirtualBox; SD/EMMC for RPi not started). The
    boot partition stays FAT32 — GRUB and the RPi firmware only know how to
    read that, it isn't replaceable. Compression and encryption layer onto
-   each object next (see `ling-kernel/src/lingfs.rs`'s module doc); a real
+   each object next (see `ling-kernel/src/fs/lingfs.rs`'s module doc); a real
    no_std crypto module (not `ling-crypto` directly — see below) is a
    prerequisite for the encryption half.
 2. **Shell commands** (done, basic set) — `help`/`clear`/`ls [dir]`/
@@ -55,7 +55,7 @@ before those foundations exist would just mean rebuilding it once they do.
    real hardware from the last ~25 years, no CHS fallback needed), then
    makes one switch to protected mode (flat GDT, `CR0.PE`) to copy it up to
    its 1MiB link address and jump in with `eax=0x36D76289`/`ebx=0` —
-   `boot32.rs`'s `_start` already tolerated `ebx==0` (no Multiboot2 info),
+   `arch/x86_64/boot.rs`'s `_start` already tolerated `ebx==0` (no Multiboot2 info),
    so no kernel-side changes were needed for this path. The installer gets
    the bootloader+kernel payload (`dist/diskboot-x86_64.img`, built by
    `live/build-diskboot-x86_64.sh`) via a Multiboot2 *module*
@@ -65,7 +65,7 @@ before those foundations exist would just mean rebuilding it once they do.
    `ling_kernel_disk_write_raw` writes straight to LBA 0, bypassing lingfs
    entirely (the one region it never touches).
 4. **Package format + local install** (done) — `.lpkg`: a small
-   length-prefixed binary format (`ling-kernel/src/packages.rs`) — magic,
+   length-prefixed binary format (`ling-kernel/src/fs/packages.rs`) — magic,
    name, version, then a list of (filename, content) entries. `pkginstall
    <blob>` unpacks one already sitting in lingfs into its own one-level
    `pkg-<name>` directory and records `<name> -> version` under
