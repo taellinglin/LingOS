@@ -26,4 +26,9 @@ if [ ! -f "$DISK" ]; then
     truncate -s 64M "$DISK"
 fi
 
-exec qemu-system-x86_64 -cdrom "$ISO" -drive file="$DISK",format=raw,if=ide,index=0 -serial stdio -m 256M
+# -nic user,model=e1000: explicit rather than relying on QEMU's
+# version-dependent default NIC (recent QEMU defaults to e1000 on the PC
+# target, but that's changed across versions before). The "user"/SLIRP
+# backend does real NAT, so this also reaches the actual internet from
+# inside the VM -- needed for anything past the driver/link-up self-test.
+exec qemu-system-x86_64 -cdrom "$ISO" -drive file="$DISK",format=raw,if=ide,index=0 -serial stdio -m 256M -nic user,model=e1000
