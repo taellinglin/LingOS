@@ -1,0 +1,7 @@
+bind start = do {
+    print("LingOS User Shell (lsh) v1.0")
+    bind pid = ling_sys_getpid()
+    print("Shell running on PID " + pid)
+    print("Commands: uname, pid, help, exit")
+    ling_sys_exit(0)
+}

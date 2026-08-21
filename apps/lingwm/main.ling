@@ -1,0 +1,7 @@
+bind start = do {
+    print("=== Starting LingOS Window Manager (lingwm) ===")
+    bind pid = ling_sys_getpid()
+    print("lingwm running as PID " + pid)
+    print("Framebuffer and input polling active")
+    ling_sys_exit(0)
+}

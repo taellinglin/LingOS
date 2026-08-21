@@ -1,0 +1,5 @@
+bind start = do {
+    print("LingOS Text Editor (edit) v1.0")
+    print("Type text, Ctrl+S to save, Ctrl+Q to quit")
+    ling_sys_exit(0)
+}

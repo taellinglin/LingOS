@@ -1,0 +1,19 @@
+bind start = do {
+    print("=== LingOS Userland App: Hello ===")
+    print("Running in Ring-3 userspace (no_std ELF64)")
+    
+    bind pid = ling_sys_getpid()
+    print("Current PID: " + pid)
+    
+    bind a = 10
+    bind b = 32
+    bind c = a + b
+    print("10 + 32 = " + c)
+    
+    bind msg = "Hello, LingOS World!"
+    print("Message: " + msg)
+    print("Message length: " + len(msg))
+    
+    print("=== App completed successfully ===")
+    ling_sys_exit(0)
+}

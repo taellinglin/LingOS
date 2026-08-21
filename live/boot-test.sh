@@ -74,27 +74,23 @@ check_markers() {
 
 boot_and_capture() {
     local name="$1"; shift
-    local log rc
-    log="$(timeout "$TIMEOUT_S" "$@" 2>&1)"
-    rc=$?
-    # `timeout` exits 124 when it has to kill the child (expected — this
-    # kernel has no shutdown path, so a healthy boot always ends this way)
-    # or 143 if the child dies from the resulting SIGTERM instead of the
-    # timeout wrapper reporting it itself; anything else means QEMU failed
-    # to start/run at all, a real failure distinct from "the markers didn't
-    # show up."
+    local tmp_log
+    tmp_log="$(mktemp)"
+    local rc=0
+    timeout "$TIMEOUT_S" "$@" -serial file:"$tmp_log" 2>/dev/null || rc=$?
     if [ "$rc" -ne 124 ] && [ "$rc" -ne 143 ] && [ "$rc" -ne 0 ]; then
         echo "FAIL [$name]: qemu exited $rc (not a boot timeout) — treating as crash"
         fail=1
     fi
-    printf '%s' "$log"
+    cat "$tmp_log"
+    rm -f "$tmp_log"
 }
 
 if [ -f "$DIST_DIR/lingos-x86_64.iso" ]; then
     log="$(boot_and_capture x86_64 qemu-system-x86_64 \
         -cdrom "$DIST_DIR/lingos-x86_64.iso" \
         -drive file="$X86_64_DISK",format=raw,if=ide,index=0 \
-        -serial stdio -m 256M -display none)"
+        -m 256M -display none)"
     check_markers x86_64 "$log" "${EXPECT_X86_64[@]}"
 else
     echo "SKIP [x86_64]: $DIST_DIR/lingos-x86_64.iso not built"
@@ -102,7 +98,7 @@ fi
 
 if [ -f "$DIST_DIR/rpi/kernel8.img" ]; then
     log="$(boot_and_capture aarch64 qemu-system-aarch64 \
-        -M raspi3b -kernel "$DIST_DIR/rpi/kernel8.img" -serial stdio -display none)"
+        -M raspi3b -kernel "$DIST_DIR/rpi/kernel8.img" -display none)"
     check_markers aarch64 "$log" "${EXPECT_AARCH64[@]}"
 else
     echo "SKIP [aarch64]: $DIST_DIR/rpi/kernel8.img not built"

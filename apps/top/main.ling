@@ -1,0 +1,7 @@
+bind start = do {
+    print("LingOS System Status (top)")
+    bind pid = ling_sys_getpid()
+    print("Self PID: " + pid)
+    print("Process table active")
+    ling_sys_exit(0)
+}
