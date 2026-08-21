@@ -31,6 +31,7 @@ EXPECT_X86_64=(
     "ling-kernel initialized"
     "timer: TSC_PER_US="
     "interrupts enabled (IDT+PIC, 100Hz heartbeat)"
+    "paging enabled (NX, W^X kernel image)"
     "lingfs mounted"
     "type 'help' for commands"
 )

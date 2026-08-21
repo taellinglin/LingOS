@@ -77,7 +77,7 @@ bind start = do {
             ling_kernel_vga_write_str("  cat <name>              write <name> <text>     hostname\n")
             ling_kernel_vga_write_str("  cd <dir>                whoami                  about\n")
             ling_kernel_vga_write_str("  useradd                 login                   passwd\n")
-            ling_kernel_vga_write_str("  groupmod <user> <group> pkginstall <blob>        selftest\n")
+            ling_kernel_vga_write_str("  groupmod <user> <group> pkginstall <blob>        selftest proctest\n")
             ling_kernel_vga_write_str("  theme dark|light         ling-life\n")
         } else {
         if cmd == "clear" {
@@ -197,6 +197,14 @@ bind start = do {
                 ling_kernel_vga_write_str("selftest: FAIL\n")
             }
         } else {
+        if cmd == "proctest" {
+            bind ok = ling_kernel_proc_selftest()
+            if ok == 1 {
+                ling_kernel_vga_write_str("proctest: PASS (ring-3 process ran, exited 42)\n")
+            } else {
+                ling_kernel_vga_write_str("proctest: FAIL\n")
+            }
+        } else {
         if cmd == "theme" {
             if arg == "light" {
                 ling_kernel_theme_light()
@@ -210,6 +218,7 @@ bind start = do {
             ling_kernel_vga_write_str("unknown command: ")
             ling_kernel_print_lstr(cmd)
             ling_kernel_vga_write_str(" (try 'help')\n")
+        }
         }
         }
         }
