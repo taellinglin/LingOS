@@ -1,10 +1,23 @@
 // LingOS window manager -- interactive milestone: a real event loop, a
-// rendered mouse cursor that tracks the PS/2 mouse, and a window you can
-// drag by holding the left button anywhere over it. Draws into
-// framebuffer.rs's back buffer and blits once per frame
-// (ling_kernel_fb_present) rather than drawing shapes straight into the
-// live framebuffer -- that tore visibly on every frame once anything moved
-// (confirmed by an actual screendump catching a mid-redraw frame).
+// rendered mouse cursor that tracks the PS/2 mouse, and a "liquid" window
+// you can drag by holding the left button anywhere over it -- it springs
+// toward the cursor with damped-oscillator physics instead of snapping
+// there instantly, with a velocity-driven squash/stretch on top, for a
+// soap-film/jelly feel. Draws into framebuffer.rs's back buffer and blits
+// once per frame (ling_kernel_fb_present) rather than drawing shapes
+// straight into the live framebuffer -- that tore visibly on every frame
+// once anything moved (confirmed by an actual screendump catching a
+// mid-redraw frame).
+//
+// The spring simulation's state (position, velocity) lives kernel-side
+// (`ling_kernel_wm_liquid_*`, see `drivers/wm_liquid.rs`'s module doc) --
+// there's no mutable-reassignment construct in this language and the
+// compiler does no tail-call optimization, so nothing on this side of the
+// FFI boundary can safely hold state that persists frame to frame in a loop
+// that runs forever. `ling_kernel_wm_liquid_step` advances the simulation
+// one frame toward wherever this file says the window's *target* should
+// be; everything else here (input, layout, what to actually draw) stays in
+// `.ling`, same as always.
 bind start = do {
     ling_kernel_init()
     ling_kernel_mouse_init()
@@ -30,15 +43,30 @@ bind start = do {
 
             // No conditional-expression construct in Ling, and a `bind`
             // inside an if/else doesn't escape it for use afterward -- so
-            // "wx is 100 normally, mx-40 while dragging" has to be one
+            // "target is 100 normally, mx-40 while dragging" has to be one
             // arithmetic expression, not a branch. `left_down` is exactly
             // 0 or 1, so one term always zeroes out.
-            bind wx = 100 * (1 - left_down) + (mx - 40) * left_down
-            bind wy = 100 * (1 - left_down) + (my - 12) * left_down
+            bind target_x = 100 * (1 - left_down) + (mx - 40) * left_down
+            bind target_y = 100 * (1 - left_down) + (my - 12) * left_down
+
+            ling_kernel_wm_liquid_step(target_x, target_y)
+            bind wx = ling_kernel_wm_liquid_x()
+            bind wy = ling_kernel_wm_liquid_y()
+            bind scale_w_pct = ling_kernel_wm_liquid_scale_w_pct()
+            bind scale_h_pct = ling_kernel_wm_liquid_scale_h_pct()
+
+            // Scale around the window's own center rather than its
+            // top-left corner, so a stretch reads as the sheet swelling in
+            // place instead of the window drifting as it deforms.
+            bind ww2 = ww * scale_w_pct / 100
+            bind wh2 = wh * scale_h_pct / 100
+            bind rx = wx - (ww2 - ww) / 2
+            bind ry = wy - (wh2 - wh) / 2
 
             ling_kernel_fb_back_clear(2236962)
-            ling_kernel_fb_back_fill_rect(wx, wy, ww, wh, 3618615)
-            ling_kernel_fb_back_fill_rect(wx, wy, ww, titlebar_h, 1710757)
+            ling_kernel_fb_back_fill_rect(rx, ry, ww2, wh2, 3618615)
+            ling_kernel_fb_back_fill_rect(rx, ry, ww2, titlebar_h, 1710757)
+            ling_kernel_fb_draw_str(rx + 6, ry + 8, "LingOS", 16777215, 1710757)
             ling_kernel_fb_back_fill_rect(mx, my, 8, 8, 16777215)
             ling_kernel_fb_present()
         }

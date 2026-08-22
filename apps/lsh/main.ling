@@ -1,7 +1,315 @@
-bind start = do {
-    print("LingOS User Shell (lsh) v1.0")
-    bind pid = ling_sys_getpid()
-    print("Shell running on PID " + pid)
-    print("Commands: uname, pid, help, exit")
-    ling_sys_exit(0)
+// lsh -- LingOS's default shell. `use`-shared into both the Live
+// (kernel/x86_64/main.ling) and Installer (kernel/x86_64-installer/main.ling)
+// kernel targets, which each keep their own boot-specific prelude (banner,
+// mount, first-run wizard) and just call `run_shell()` once they're ready
+// to hand off to an interactive prompt.
+//
+// sudo here is a *shell-level* gate (wheel-group membership + a fresh
+// password re-entry before useradd/passwd/groupmod/pkginstall), not a
+// kernel security boundary -- this kernel has no ring-3/per-process
+// isolation at all, so any code already running could call any
+// `ling_kernel_*` intrinsic directly regardless of this check. It stops an
+// operator from running a sensitive command by accident; it does not
+// defend against malicious code. See `fs/users.rs`'s module doc in
+// ling-kernel for the same disclosure at the intrinsic layer.
+
+fn is_wheel() -> u64 {
+    return ling_kernel_user_is_wheel()
+}
+
+fn print_help() {
+    ling_kernel_vga_write_str("Available commands:\n")
+    ling_kernel_vga_write_str("  help                    clear                   ls\n")
+    ling_kernel_vga_write_str("  cat <name>              write <name> <text>     hostname\n")
+    ling_kernel_vga_write_str("  cd <dir>                pwd                     echo <text>\n")
+    ling_kernel_vga_write_str("  whoami                  groups                  about\n")
+    ling_kernel_vga_write_str("  login                   su <user>               passwd\n")
+    ling_kernel_vga_write_str("  useradd*                groupmod <user> <grp>*  pkginstall <blob>*\n")
+    ling_kernel_vga_write_str("  sudo <cmd...>           selftest proctest ps    theme dark|light\n")
+    ling_kernel_vga_write_str("  ling-life\n")
+    ling_kernel_vga_write_str("  (* needs the wheel group -- run directly if you're in it, or via sudo)\n")
+}
+
+// The full command dispatch, shared between the main loop and `sudo`'s
+// re-authenticated delegation -- both end up here so a command behaves
+// identically either way once the (identical) wheel check passes.
+fn run_command(cmd, arg) {
+    if cmd == "help" {
+        print_help()
+    } else if cmd == "clear" {
+        ling_kernel_vga_clear()
+    } else if cmd == "ls" {
+        ling_kernel_fs_ls(arg)
+    } else if cmd == "cat" {
+        bind content = ling_kernel_fs_read(arg)
+        ling_kernel_print_lstr(content)
+        ling_kernel_vga_write_str("\n")
+    } else if cmd == "write" {
+        bind wname = ling_kernel_str_cmd(arg)
+        bind wcontent = ling_kernel_str_arg(arg)
+        ling_kernel_fs_write(wname, wcontent)
+        ling_kernel_vga_write_str("ok\n")
+    } else if cmd == "hostname" {
+        bind hn2 = ling_kernel_fs_read("/hostname")
+        if len(hn2) == 0 {
+            ling_kernel_vga_write_str("lingos\n")
+        } else {
+            ling_kernel_print_lstr(hn2)
+            ling_kernel_vga_write_str("\n")
+        }
+    } else if cmd == "cd" {
+        bind cd_ok = ling_kernel_cd(arg)
+        if cd_ok == 0 {
+            ling_kernel_vga_set_color(12, 0)
+            ling_kernel_vga_write_str("cd: no such directory\n")
+            ling_kernel_vga_set_color(7, 0)
+        }
+    } else if cmd == "pwd" {
+        ling_kernel_vga_write_str("/")
+        bind cwd2 = ling_kernel_cwd()
+        ling_kernel_print_lstr(cwd2)
+        ling_kernel_vga_write_str("\n")
+    } else if cmd == "echo" {
+        ling_kernel_print_lstr(arg)
+        ling_kernel_vga_write_str("\n")
+    } else if cmd == "whoami" {
+        bind who2 = ling_kernel_whoami()
+        ling_kernel_print_lstr(who2)
+        ling_kernel_vga_write_str("\n")
+    } else if cmd == "groups" {
+        bind grp = ling_kernel_user_group()
+        if len(grp) == 0 {
+            ling_kernel_vga_write_str("(none)\n")
+        } else {
+            ling_kernel_print_lstr(grp)
+            ling_kernel_vga_write_str("\n")
+        }
+    } else if cmd == "useradd" {
+        if is_wheel() == 0 {
+            ling_kernel_vga_set_color(12, 0)
+            ling_kernel_vga_write_str("useradd: permission denied (needs the wheel group -- try 'sudo useradd')\n")
+            ling_kernel_vga_set_color(7, 0)
+        } else {
+            ling_kernel_vga_write_str("Username: ")
+            bind u_username = ling_kernel_read_line()
+            ling_kernel_vga_write_str("Password: ")
+            bind u_password = ling_kernel_read_line_masked()
+            ling_kernel_vga_write_str("First name: ")
+            bind u_first = ling_kernel_read_line()
+            ling_kernel_vga_write_str("Last name: ")
+            bind u_last = ling_kernel_read_line()
+            ling_kernel_vga_write_str("Phone: ")
+            bind u_phone = ling_kernel_read_line()
+            ling_kernel_vga_write_str("Email: ")
+            bind u_email = ling_kernel_read_line()
+            ling_kernel_vga_write_str("Group [users]: ")
+            bind u_group = ling_kernel_read_line()
+            bind u_ok = ling_kernel_user_create(u_username, u_password, u_first, u_last, u_phone, u_email, u_group)
+            if u_ok == 1 {
+                ling_kernel_vga_set_color(10, 0)
+                ling_kernel_vga_write_str("user created\n")
+                ling_kernel_vga_set_color(7, 0)
+            } else {
+                ling_kernel_vga_set_color(12, 0)
+                ling_kernel_vga_write_str("useradd failed\n")
+                ling_kernel_vga_set_color(7, 0)
+            }
+        }
+    } else if cmd == "login" {
+        ling_kernel_vga_write_str("Username: ")
+        bind l_username = ling_kernel_read_line()
+        ling_kernel_vga_write_str("Password: ")
+        bind l_password = ling_kernel_read_line_masked()
+        bind l_ok = ling_kernel_user_login(l_username, l_password)
+        if l_ok == 1 {
+            ling_kernel_vga_set_color(10, 0)
+            ling_kernel_vga_write_str("login ok\n")
+            ling_kernel_vga_set_color(7, 0)
+        } else {
+            ling_kernel_vga_set_color(12, 0)
+            ling_kernel_vga_write_str("login failed\n")
+            ling_kernel_vga_set_color(7, 0)
+        }
+    } else if cmd == "su" {
+        if len(arg) == 0 {
+            ling_kernel_vga_write_str("usage: su <user>\n")
+        } else {
+            ling_kernel_vga_write_str("Password: ")
+            bind s_password = ling_kernel_read_line_masked()
+            bind s_ok = ling_kernel_user_login(arg, s_password)
+            if s_ok == 1 {
+                ling_kernel_vga_set_color(10, 0)
+                ling_kernel_vga_write_str("switched user\n")
+                ling_kernel_vga_set_color(7, 0)
+            } else {
+                ling_kernel_vga_set_color(12, 0)
+                ling_kernel_vga_write_str("su: authentication failed\n")
+                ling_kernel_vga_set_color(7, 0)
+            }
+        }
+    } else if cmd == "passwd" {
+        ling_kernel_vga_write_str("Username: ")
+        bind p_username = ling_kernel_read_line()
+        ling_kernel_vga_write_str("New password: ")
+        bind p_password = ling_kernel_read_line_masked()
+        bind p_ok = ling_kernel_user_set_password(p_username, p_password)
+        if p_ok == 1 {
+            ling_kernel_vga_set_color(10, 0)
+            ling_kernel_vga_write_str("password changed\n")
+            ling_kernel_vga_set_color(7, 0)
+        } else {
+            ling_kernel_vga_set_color(12, 0)
+            ling_kernel_vga_write_str("passwd failed (no such user?)\n")
+            ling_kernel_vga_set_color(7, 0)
+        }
+    } else if cmd == "groupmod" {
+        if is_wheel() == 0 {
+            ling_kernel_vga_set_color(12, 0)
+            ling_kernel_vga_write_str("groupmod: permission denied (needs the wheel group -- try 'sudo groupmod ...')\n")
+            ling_kernel_vga_set_color(7, 0)
+        } else {
+            bind gm_username = ling_kernel_str_cmd(arg)
+            bind gm_group = ling_kernel_str_arg(arg)
+            bind gm_ok = ling_kernel_user_set_group(gm_username, gm_group)
+            if gm_ok == 1 {
+                ling_kernel_vga_set_color(10, 0)
+                ling_kernel_vga_write_str("group changed\n")
+                ling_kernel_vga_set_color(7, 0)
+            } else {
+                ling_kernel_vga_set_color(12, 0)
+                ling_kernel_vga_write_str("groupmod failed (no such user?)\n")
+                ling_kernel_vga_set_color(7, 0)
+            }
+        }
+    } else if cmd == "pkginstall" {
+        if is_wheel() == 0 {
+            ling_kernel_vga_set_color(12, 0)
+            ling_kernel_vga_write_str("pkginstall: permission denied (needs the wheel group -- try 'sudo pkginstall ...')\n")
+            ling_kernel_vga_set_color(7, 0)
+        } else {
+            bind pkg_ok = ling_kernel_pkg_install(arg)
+            if pkg_ok == 1 {
+                ling_kernel_vga_set_color(10, 0)
+                ling_kernel_vga_write_str("installed (see: ls packages)\n")
+                ling_kernel_vga_set_color(7, 0)
+            } else {
+                ling_kernel_vga_set_color(12, 0)
+                ling_kernel_vga_write_str("pkginstall failed (bad/missing .lpkg blob)\n")
+                ling_kernel_vga_set_color(7, 0)
+            }
+        }
+    } else if cmd == "sudo" {
+        bind sub_cmd = ling_kernel_str_cmd(arg)
+        bind sub_arg = ling_kernel_str_arg(arg)
+        if len(sub_cmd) == 0 {
+            ling_kernel_vga_write_str("usage: sudo <command> [args]\n")
+        } else if is_wheel() == 0 {
+            ling_kernel_vga_set_color(12, 0)
+            bind who4 = ling_kernel_whoami()
+            ling_kernel_print_lstr(who4)
+            ling_kernel_vga_write_str(" is not in the wheel group\n")
+            ling_kernel_vga_set_color(7, 0)
+        } else {
+            ling_kernel_vga_write_str("[sudo] password: ")
+            bind sudo_pw = ling_kernel_read_line_masked()
+            bind who5 = ling_kernel_whoami()
+            bind sudo_ok = ling_kernel_user_login(who5, sudo_pw)
+            if sudo_ok == 1 {
+                run_command(sub_cmd, sub_arg)
+            } else {
+                ling_kernel_vga_set_color(12, 0)
+                ling_kernel_vga_write_str("sudo: authentication failed\n")
+                ling_kernel_vga_set_color(7, 0)
+            }
+        }
+    } else if cmd == "ling-life" {
+        ling_kernel_life_run()
+    } else if cmd == "about" {
+        ling_kernel_vga_write_str("LingOS -- a basic OS, made in Ling\n")
+    } else if cmd == "selftest" {
+        bind ok = ling_kernel_fs_selftest()
+        if ok == 1 {
+            ling_kernel_vga_set_color(10, 0)
+            ling_kernel_vga_write_str("selftest: PASS\n")
+            ling_kernel_vga_set_color(7, 0)
+        } else {
+            ling_kernel_vga_set_color(12, 0)
+            ling_kernel_vga_write_str("selftest: FAIL\n")
+            ling_kernel_vga_set_color(7, 0)
+        }
+    } else if cmd == "proctest" {
+        bind pok = ling_kernel_proc_selftest()
+        if pok == 1 {
+            ling_kernel_vga_set_color(10, 0)
+            ling_kernel_vga_write_str("proctest: PASS (cooperative task spawned, ran, yielded back)\n")
+            ling_kernel_vga_set_color(7, 0)
+        } else {
+            ling_kernel_vga_set_color(12, 0)
+            ling_kernel_vga_write_str("proctest: FAIL\n")
+            ling_kernel_vga_set_color(7, 0)
+        }
+    } else if cmd == "ps" {
+        ling_kernel_proc_ps()
+    } else if cmd == "theme" {
+        if arg == "light" {
+            ling_kernel_theme_light()
+        } else {
+            ling_kernel_theme_dark()
+        }
+    } else if cmd == "" {
+        ling_kernel_vga_write_str("")
+    } else {
+        ling_kernel_vga_set_color(12, 0)
+        ling_kernel_vga_write_str("unknown command: ")
+        ling_kernel_print_lstr(cmd)
+        ling_kernel_vga_write_str(" (try 'help')\n")
+        ling_kernel_vga_set_color(7, 0)
+    }
+}
+
+// zsh-style two-line prompt: path in red, user in light blue, hostname in
+// light green, punctuation in light grey, and a wheel-colored `#`/`$` that
+// reflects group membership at a glance (bright red `#` for wheel, plain
+// grey `$` otherwise) -- not an elevation indicator (nothing here holds a
+// persistent elevated session, see `sudo`'s doc comment above), just group
+// membership.
+fn print_prompt() {
+    ling_kernel_vga_set_color(4, 0)
+    ling_kernel_vga_write_str("/")
+    bind cwd = ling_kernel_cwd()
+    ling_kernel_print_lstr(cwd)
+    ling_kernel_vga_write_str("\n")
+    ling_kernel_vga_set_color(9, 0)
+    bind who = ling_kernel_whoami()
+    ling_kernel_print_lstr(who)
+    ling_kernel_vga_set_color(7, 0)
+    ling_kernel_vga_write_str("@")
+    ling_kernel_vga_set_color(10, 0)
+    bind hn = ling_kernel_fs_read("/hostname")
+    if len(hn) == 0 {
+        ling_kernel_vga_write_str("lingos")
+    } else {
+        ling_kernel_print_lstr(hn)
+    }
+    if is_wheel() == 1 {
+        ling_kernel_vga_set_color(12, 0)
+        ling_kernel_vga_write_str(" # ")
+    } else {
+        ling_kernel_vga_set_color(8, 0)
+        ling_kernel_vga_write_str(" $ ")
+    }
+    ling_kernel_vga_set_color(7, 0)
+}
+
+// The shared shell loop -- called once the caller (Live's boot sequence, or
+// the Installer's after its own first-run wizard) is ready to hand off to
+// an interactive prompt.
+fn run_shell() {
+    while 1 == 1 {
+        print_prompt()
+        bind line = ling_kernel_read_line()
+        bind cmd = ling_kernel_str_cmd(line)
+        bind arg = ling_kernel_str_arg(line)
+        run_command(cmd, arg)
+    }
 }
