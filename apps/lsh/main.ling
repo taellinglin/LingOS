@@ -26,7 +26,7 @@ fn print_help() {
     ling_kernel_vga_write_str("  login                   su <user>               passwd\n")
     ling_kernel_vga_write_str("  useradd*                groupmod <user> <grp>*  pkginstall <blob>*\n")
     ling_kernel_vga_write_str("  lingfu list|search|install*                    sudo <cmd...>\n")
-    ling_kernel_vga_write_str("  selftest proctest ps    theme dark|light\n")
+    ling_kernel_vga_write_str("  selftest proctest ps    theme dark|light         nettest\n")
     ling_kernel_vga_write_str("  ling-life\n")
     ling_kernel_vga_write_str("  (* needs the wheel group -- run directly if you're in it, or via sudo)\n")
 }
@@ -287,6 +287,32 @@ fn run_command(cmd, arg) {
         }
     } else if cmd == "ps" {
         ling_kernel_proc_ps()
+    } else if cmd == "nettest" {
+        // Detailed MAC/link output goes to the serial log (no easy
+        // hex/decimal-byte formatting on this shell's side) -- this just
+        // reports pass/fail. See ling-kernel's drivers::net_e1000 module
+        // doc: no interrupts, no DHCP, static-IP/self-test phase only.
+        bind net_ok = ling_kernel_net_init()
+        if net_ok == 0 {
+            ling_kernel_vga_set_color(12, 0)
+            ling_kernel_vga_write_str("nettest: no NIC found\n")
+            ling_kernel_vga_set_color(7, 0)
+        } else {
+            ling_kernel_vga_set_color(10, 0)
+            ling_kernel_vga_write_str("nettest: NIC initialized (see serial log for MAC/link)\n")
+            ling_kernel_vga_set_color(7, 0)
+            ling_kernel_vga_write_str("sending ARP request for the gateway...\n")
+            bind arp_ok = ling_kernel_net_arp_selftest()
+            if arp_ok == 1 {
+                ling_kernel_vga_set_color(10, 0)
+                ling_kernel_vga_write_str("nettest: ARP PASS -- gateway replied (driver TX/RX confirmed working)\n")
+                ling_kernel_vga_set_color(7, 0)
+            } else {
+                ling_kernel_vga_set_color(12, 0)
+                ling_kernel_vga_write_str("nettest: ARP FAIL -- no reply within timeout\n")
+                ling_kernel_vga_set_color(7, 0)
+            }
+        }
     } else if cmd == "theme" {
         if arg == "light" {
             ling_kernel_theme_light()
