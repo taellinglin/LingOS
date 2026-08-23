@@ -25,7 +25,8 @@ fn print_help() {
     ling_kernel_vga_write_str("  whoami                  groups                  about\n")
     ling_kernel_vga_write_str("  login                   su <user>               passwd\n")
     ling_kernel_vga_write_str("  useradd*                groupmod <user> <grp>*  pkginstall <blob>*\n")
-    ling_kernel_vga_write_str("  sudo <cmd...>           selftest proctest ps    theme dark|light\n")
+    ling_kernel_vga_write_str("  lingfu list|search|install*                    sudo <cmd...>\n")
+    ling_kernel_vga_write_str("  selftest proctest ps    theme dark|light\n")
     ling_kernel_vga_write_str("  ling-life\n")
     ling_kernel_vga_write_str("  (* needs the wheel group -- run directly if you're in it, or via sudo)\n")
 }
@@ -197,6 +198,42 @@ fn run_command(cmd, arg) {
                 ling_kernel_vga_write_str("pkginstall failed (bad/missing .lpkg blob)\n")
                 ling_kernel_vga_set_color(7, 0)
             }
+        }
+    } else if cmd == "lingfu" {
+        bind lf_cmd = ling_kernel_str_cmd(arg)
+        bind lf_arg = ling_kernel_str_arg(arg)
+        if lf_cmd == "list" {
+            ling_kernel_fs_ls("packages")
+        } else if lf_cmd == "search" {
+            // No registry client exists yet -- that's blocked on a real NIC
+            // driver/TCP+TLS stack (see packages/README.md's roadmap), not
+            // on anything this shell could paper over. `catalog/` is a
+            // local lingfs directory of .lpkg blobs already present on this
+            // system (e.g. shipped on the install media) -- the honest
+            // "search" this command can actually do today.
+            ling_kernel_vga_write_str("no network registry yet -- searching the local catalog only\n")
+            ling_kernel_fs_ls("catalog")
+        } else if lf_cmd == "install" {
+            if len(lf_arg) == 0 {
+                ling_kernel_vga_write_str("usage: lingfu install <blob>\n")
+            } else if is_wheel() == 0 {
+                ling_kernel_vga_set_color(12, 0)
+                ling_kernel_vga_write_str("lingfu install: permission denied (needs the wheel group -- try 'sudo lingfu install ...')\n")
+                ling_kernel_vga_set_color(7, 0)
+            } else {
+                bind lf_ok = ling_kernel_pkg_install(lf_arg)
+                if lf_ok == 1 {
+                    ling_kernel_vga_set_color(10, 0)
+                    ling_kernel_vga_write_str("installed (see: lingfu list)\n")
+                    ling_kernel_vga_set_color(7, 0)
+                } else {
+                    ling_kernel_vga_set_color(12, 0)
+                    ling_kernel_vga_write_str("lingfu install failed (no such blob in lingfs or in catalog/)\n")
+                    ling_kernel_vga_set_color(7, 0)
+                }
+            }
+        } else {
+            ling_kernel_vga_write_str("usage: lingfu list | search <term> | install <blob>\n")
         }
     } else if cmd == "sudo" {
         bind sub_cmd = ling_kernel_str_cmd(arg)

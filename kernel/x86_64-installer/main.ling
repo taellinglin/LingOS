@@ -15,6 +15,21 @@
 // immediately usable too.
 use "../../apps/lsh/main"
 
+// VGA text mode can't render the CJK/Thai/Daemon scripts `drivers::
+// font_unicode` bakes for the (framebuffer-only) WM locale picker -- no
+// linear framebuffer exists here at all (this target keeps the plain
+// Multiboot2 header, see the framebuffer/text-mode split in `ling_kernel::
+// init`'s doc). So this picker is Latin-name-only, a real but visibly
+// smaller version of the WM's picker, not the full thing.
+fn print_locale_option(i) {
+    bind name = ling_kernel_locale_latin_name(i)
+    ling_kernel_vga_write_str("  ")
+    ling_kernel_print_lstr(ling_kernel_locale_id(i))
+    ling_kernel_vga_write_str(") ")
+    ling_kernel_print_lstr(name)
+    ling_kernel_vga_write_str("\n")
+}
+
 bind start = do {
     ling_kernel_init()
     ling_kernel_mouse_init()
@@ -27,10 +42,33 @@ bind start = do {
     ling_kernel_vga_write_str("================================================================\n")
     ling_kernel_vga_set_color(7, 0)
 
+    // Language/locale choice, as the first real step -- before mount, since
+    // it's pure UI with nothing to persist yet.
+    ling_kernel_vga_write_str("\nChoose a language / locale (id, e.g. \"en-US\"):\n")
+    print_locale_option(0)
+    print_locale_option(1)
+    print_locale_option(2)
+    print_locale_option(3)
+    print_locale_option(4)
+    print_locale_option(5)
+    print_locale_option(6)
+    print_locale_option(7)
+    print_locale_option(8)
+    ling_kernel_vga_write_str("> ")
+    bind locale_pick = ling_kernel_read_line()
+    bind locale_idx = ling_kernel_locale_index_of_id(locale_pick)
+    ling_kernel_locale_select(locale_idx)
+    ling_kernel_vga_set_color(10, 0)
+    ling_kernel_vga_write_str("Locale: ")
+    ling_kernel_print_lstr(ling_kernel_locale_latin_name(locale_idx))
+    ling_kernel_vga_write_str("\n")
+    ling_kernel_vga_set_color(7, 0)
+
     bind fs_ok = ling_kernel_fs_mount()
     if fs_ok == 1 {
         ling_kernel_vga_set_color(10, 0)
         ling_kernel_vga_write_str("disk volume mounted\n")
+        ling_kernel_fs_write("/locale", ling_kernel_locale_id(locale_idx))
     } else {
         ling_kernel_vga_set_color(4, 0)
         ling_kernel_vga_write_str("disk volume mount FAILED -- cannot install\n")
@@ -52,6 +90,31 @@ bind start = do {
         ling_kernel_vga_set_color(10, 0)
         ling_kernel_vga_write_str("Setup saved to disk.\n")
         ling_kernel_vga_set_color(7, 0)
+
+        // Package selection: `catalog/` is a lingfs directory of .lpkg
+        // blobs already present on the install media (no network registry
+        // exists yet -- see packages/README.md). One package per prompt,
+        // not a multi-select checklist: this shell has no list/loop
+        // primitive to walk a typed multi-name line with, and a real
+        // Next/Back GUI package screen is still future work (see the WM's
+        // own module doc for the same "best-effort, some pieces deferred"
+        // scoping this session already used elsewhere).
+        ling_kernel_vga_write_str("\nAvailable packages (catalog/):\n")
+        ling_kernel_fs_ls("catalog")
+        ling_kernel_vga_write_str("Package to install now (blank to skip, more later via 'lingfu install'): ")
+        bind pick = ling_kernel_read_line()
+        if len(pick) != 0 {
+            bind pick_ok = ling_kernel_pkg_install(pick)
+            if pick_ok == 1 {
+                ling_kernel_vga_set_color(10, 0)
+                ling_kernel_vga_write_str("installed.\n")
+                ling_kernel_vga_set_color(7, 0)
+            } else {
+                ling_kernel_vga_set_color(12, 0)
+                ling_kernel_vga_write_str("install failed (not found in catalog/) -- try again later with 'lingfu install'.\n")
+                ling_kernel_vga_set_color(7, 0)
+            }
+        }
     } else {
         bind hn = ling_kernel_fs_read("/hostname")
         ling_kernel_vga_write_str("\nWelcome back, ")
