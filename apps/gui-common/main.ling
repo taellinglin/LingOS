@@ -1,0 +1,74 @@
+// Shared graphics-mode UI pieces -- `use`-shared between kernel/x86_64-wm
+// (the Live desktop) and kernel/x86_64-installer-gui (the GUI installer),
+// so the locale picker is pixel-for-pixel the same experience in both
+// rather than two copies that could drift apart.
+
+fn draw_locale_row(i, y) {
+    bind native = ling_kernel_locale_native_name(i)
+    bind daemon = ling_kernel_locale_uses_daemon(i)
+    bind flag_id = ling_kernel_locale_flag_id(i)
+    ling_kernel_fb_draw_flag(flag_id, 20, y, 28, 18)
+    ling_kernel_fb_draw_utf8_str(60, y + 1, native, 16777215, 2236962, daemon)
+}
+
+// There are exactly 9 locales in `drivers::locale`'s table -- explicitly
+// unrolled rather than looped, since a `while`-loop counter is exactly the
+// kind of frame-to-frame mutable state `.ling`'s AOT kernel path doesn't
+// have (see `drivers::locale::select`'s doc for the same reasoning applied
+// to the selection itself).
+fn draw_locale_picker(title) {
+    ling_kernel_fb_back_clear(2236962)
+    ling_kernel_fb_draw_str(20, 20, title, 16777215, 2236962)
+    draw_locale_row(0, 50)
+    draw_locale_row(1, 74)
+    draw_locale_row(2, 98)
+    draw_locale_row(3, 122)
+    draw_locale_row(4, 146)
+    draw_locale_row(5, 170)
+    draw_locale_row(6, 194)
+    draw_locale_row(7, 218)
+    draw_locale_row(8, 242)
+    ling_kernel_fb_draw_str(20, 270, "press 0-8", 11184810, 2236962)
+    ling_kernel_fb_present()
+}
+
+fn locale_picker_handle_key(key) {
+    if key == 48 {
+        ling_kernel_locale_select(0)
+    } else if key == 49 {
+        ling_kernel_locale_select(1)
+    } else if key == 50 {
+        ling_kernel_locale_select(2)
+    } else if key == 51 {
+        ling_kernel_locale_select(3)
+    } else if key == 52 {
+        ling_kernel_locale_select(4)
+    } else if key == 53 {
+        ling_kernel_locale_select(5)
+    } else if key == 54 {
+        ling_kernel_locale_select(6)
+    } else if key == 55 {
+        ling_kernel_locale_select(7)
+    } else if key == 56 {
+        ling_kernel_locale_select(8)
+    }
+}
+
+// Run the picker until a selection is made -- a real `while` loop over
+// kernel-side state (`ling_kernel_locale_selected`), not an unrolled
+// per-frame step, since callers that just want "block until picked" (the
+// installer) shouldn't have to drive the loop themselves the way the WM's
+// own always-running frame loop does. Always resets first: this table
+// doubles as both "system language" and "locale/timezone" in the GUI
+// installer's wizard (see its module doc for why one table serves both),
+// so calling this a second time for the second step needs to forget the
+// first pick, not just re-report it instantly.
+fn run_locale_picker(title) {
+    ling_kernel_locale_reset()
+    bind locale_count = ling_kernel_locale_count()
+    while ling_kernel_locale_selected() == locale_count {
+        draw_locale_picker(title)
+        bind key = ling_kernel_kbd_poll_char()
+        locale_picker_handle_key(key)
+    }
+}

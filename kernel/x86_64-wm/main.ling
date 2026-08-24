@@ -1,8 +1,10 @@
-// LingOS window manager -- interactive milestone: a real event loop, a
-// rendered mouse cursor that tracks the PS/2 mouse, and a "liquid" window
-// you can drag by holding the left button anywhere over it -- it springs
-// toward the cursor with damped-oscillator physics instead of snapping
-// there instantly, with a velocity-driven squash/stretch on top, for a
+// LingOS "Live" desktop -- the GRUB "Live" entry boots straight into this
+// (graphics-mode) target now, not the text shell (kernel/x86_64, still
+// used for Rescue and the old CLI-only path). Real event loop, a rendered
+// mouse cursor tracking the PS/2 mouse, and a "liquid" window you can drag
+// by holding the left button anywhere over it -- it springs toward the
+// cursor with damped-oscillator physics instead of snapping there
+// instantly, with a velocity-driven squash/stretch on top, for a
 // soap-film/jelly feel. Draws into framebuffer.rs's back buffer and blits
 // once per frame (ling_kernel_fb_present) rather than drawing shapes
 // straight into the live framebuffer -- that tore visibly on every frame
@@ -19,20 +21,17 @@
 // be; everything else here (input, layout, what to actually draw) stays in
 // `.ling`, same as always.
 //
-// Before the window itself, a locale picker: `ling_kernel_locale_selected()`
-// is the same kind of kernel-side state as the liquid-window physics, for
-// the same reason (a choice made on one frame of an infinite loop can't be
-// remembered by a `bind` on the next). There are exactly 9 locales in
-// `drivers::locale`'s table -- explicitly unrolled below rather than
-// looped, since a `while`-loop counter is exactly the kind of frame-to-
-// frame mutable state this language doesn't have either.
-fn draw_locale_row(i, y) {
-    bind native = ling_kernel_locale_native_name(i)
-    bind daemon = ling_kernel_locale_uses_daemon(i)
-    bind flag_id = ling_kernel_locale_flag_id(i)
-    ling_kernel_fb_draw_flag(flag_id, 20, y, 28, 18)
-    ling_kernel_fb_draw_utf8_str(60, y + 1, native, 16777215, 2236962, daemon)
-}
+// Honest scope: this is still a minimal desktop -- one draggable window and
+// a locale picker, not the file explorer/editor/media apps/dock a full
+// desktop implies. Those don't exist yet (see the project backlog). What's
+// real here: a default "live" account is actually created and logged in
+// (not just displayed), lingfs is actually mounted, and a real e1000
+// init attempt is made and its real status shown -- not faked. There's no
+// Wi-Fi driver (out of scope -- see the networking plan) and the e1000
+// driver's packet delivery itself is still an open bug (see drivers::
+// net_e1000's module doc), so "connect to the internet" here means "try,
+// and honestly report whether the NIC came up" -- not a working connection.
+use "../../apps/gui-common/main"
 
 bind start = do {
     ling_kernel_init()
@@ -40,17 +39,35 @@ bind start = do {
 
     bind avail = ling_kernel_fb_available()
     if avail == 0 {
-        ling_kernel_vga_write_str("no framebuffer -- wm needs graphics mode\n")
+        ling_kernel_vga_write_str("no framebuffer -- the Live desktop needs graphics mode\n")
     } else {
         bind fb_w = ling_kernel_fb_width()
         bind fb_h = ling_kernel_fb_height()
         ling_kernel_mouse_set_bounds(fb_w, fb_h)
 
+        // A real, serial-visible "we got this far" marker -- vga_write_str
+        // mirrors to serial regardless of display mode (console_write's
+        // doc), so this is a genuine regression check for the exact class
+        // of bug this session already hit once (a silent pre-loop hang
+        // from a double PS/2 mouse handshake looked identical to "just
+        // slow" until a screendump caught the black screen). boot-test.sh
+        // checks for this line on the default (Live) GRUB entry.
+        ling_kernel_vga_write_str("wm: entering interactive loop\n")
+
+        run_locale_picker("Welcome to LingOS -- choose a language / locale:")
+        bind locale_idx = ling_kernel_locale_selected()
+
+        // One-time setup, now that a locale is picked: mount, a default
+        // account so this is a real logged-in session (not anonymous
+        // root), and a real (not simulated) network bring-up attempt.
+        ling_kernel_fs_mount()
+        ling_kernel_user_create("live", "live", "Live", "User", "", "", "users")
+        ling_kernel_user_login("live", "live")
+        bind net_ok = ling_kernel_net_init()
+
         bind ww = 320
         bind wh = 200
         bind titlebar_h = 24
-
-        bind locale_count = ling_kernel_locale_count()
 
         while 1 == 1 {
             ling_kernel_mouse_poll()
@@ -58,81 +75,45 @@ bind start = do {
             bind my = ling_kernel_mouse_y()
             bind buttons = ling_kernel_mouse_buttons()
             bind left_down = buttons % 2
-            bind selected = ling_kernel_locale_selected()
 
-            if selected == locale_count {
-                // Not picked yet -- render the list and poll for a digit
-                // key 0-8 (see `draw_locale_row`'s doc for why this is
-                // unrolled rather than looped). `ling_kernel_locale_select`
-                // is itself a no-op past the real locale count, so a stray
-                // keypress with no matching row just does nothing.
-                bind key = ling_kernel_kbd_poll_char()
-                ling_kernel_fb_back_clear(2236962)
-                ling_kernel_fb_draw_str(20, 20, "Choose a language / locale:", 16777215, 2236962)
-                draw_locale_row(0, 50)
-                draw_locale_row(1, 74)
-                draw_locale_row(2, 98)
-                draw_locale_row(3, 122)
-                draw_locale_row(4, 146)
-                draw_locale_row(5, 170)
-                draw_locale_row(6, 194)
-                draw_locale_row(7, 218)
-                draw_locale_row(8, 242)
-                ling_kernel_fb_draw_str(20, 270, "press 0-8", 11184810, 2236962)
-                ling_kernel_fb_present()
+            // No conditional-expression construct in Ling, and a `bind`
+            // inside an if/else doesn't escape it for use afterward -- so
+            // "target is 100 normally, mx-40 while dragging" has to be one
+            // arithmetic expression, not a branch. `left_down` is exactly
+            // 0 or 1, so one term always zeroes out.
+            bind target_x = 100 * (1 - left_down) + (mx - 40) * left_down
+            bind target_y = 100 * (1 - left_down) + (my - 12) * left_down
 
-                if key == 48 {
-                    ling_kernel_locale_select(0)
-                } else if key == 49 {
-                    ling_kernel_locale_select(1)
-                } else if key == 50 {
-                    ling_kernel_locale_select(2)
-                } else if key == 51 {
-                    ling_kernel_locale_select(3)
-                } else if key == 52 {
-                    ling_kernel_locale_select(4)
-                } else if key == 53 {
-                    ling_kernel_locale_select(5)
-                } else if key == 54 {
-                    ling_kernel_locale_select(6)
-                } else if key == 55 {
-                    ling_kernel_locale_select(7)
-                } else if key == 56 {
-                    ling_kernel_locale_select(8)
-                }
+            ling_kernel_wm_liquid_step(target_x, target_y)
+            bind wx = ling_kernel_wm_liquid_x()
+            bind wy = ling_kernel_wm_liquid_y()
+            bind scale_w_pct = ling_kernel_wm_liquid_scale_w_pct()
+            bind scale_h_pct = ling_kernel_wm_liquid_scale_h_pct()
+
+            // Scale around the window's own center rather than its
+            // top-left corner, so a stretch reads as the sheet swelling in
+            // place instead of the window drifting as it deforms.
+            bind ww2 = ww * scale_w_pct / 100
+            bind wh2 = wh * scale_h_pct / 100
+            bind rx = wx - (ww2 - ww) / 2
+            bind ry = wy - (wh2 - wh) / 2
+
+            bind title = ling_kernel_locale_native_name(locale_idx)
+            bind title_daemon = ling_kernel_locale_uses_daemon(locale_idx)
+
+            ling_kernel_fb_back_clear(2236962)
+            ling_kernel_fb_back_fill_rect(rx, ry, ww2, wh2, 3618615)
+            ling_kernel_fb_back_fill_rect(rx, ry, ww2, titlebar_h, 1710757)
+            ling_kernel_fb_draw_utf8_str(rx + 6, ry + 4, title, 16777215, 1710757, title_daemon)
+            ling_kernel_fb_back_fill_rect(mx, my, 8, 8, 16777215)
+
+            // Real (not decorative) network status, bottom-left.
+            if net_ok == 1 {
+                ling_kernel_fb_draw_str(20, fb_h - 24, "network: NIC up (internet not yet reachable)", 11184810, 2236962)
             } else {
-                // No conditional-expression construct in Ling, and a `bind`
-                // inside an if/else doesn't escape it for use afterward --
-                // so "target is 100 normally, mx-40 while dragging" has to
-                // be one arithmetic expression, not a branch. `left_down`
-                // is exactly 0 or 1, so one term always zeroes out.
-                bind target_x = 100 * (1 - left_down) + (mx - 40) * left_down
-                bind target_y = 100 * (1 - left_down) + (my - 12) * left_down
-
-                ling_kernel_wm_liquid_step(target_x, target_y)
-                bind wx = ling_kernel_wm_liquid_x()
-                bind wy = ling_kernel_wm_liquid_y()
-                bind scale_w_pct = ling_kernel_wm_liquid_scale_w_pct()
-                bind scale_h_pct = ling_kernel_wm_liquid_scale_h_pct()
-
-                // Scale around the window's own center rather than its
-                // top-left corner, so a stretch reads as the sheet swelling
-                // in place instead of the window drifting as it deforms.
-                bind ww2 = ww * scale_w_pct / 100
-                bind wh2 = wh * scale_h_pct / 100
-                bind rx = wx - (ww2 - ww) / 2
-                bind ry = wy - (wh2 - wh) / 2
-
-                bind title = ling_kernel_locale_native_name(selected)
-                bind title_daemon = ling_kernel_locale_uses_daemon(selected)
-
-                ling_kernel_fb_back_clear(2236962)
-                ling_kernel_fb_back_fill_rect(rx, ry, ww2, wh2, 3618615)
-                ling_kernel_fb_back_fill_rect(rx, ry, ww2, titlebar_h, 1710757)
-                ling_kernel_fb_draw_utf8_str(rx + 6, ry + 4, title, 16777215, 1710757, title_daemon)
-                ling_kernel_fb_back_fill_rect(mx, my, 8, 8, 16777215)
-                ling_kernel_fb_present()
+                ling_kernel_fb_draw_str(20, fb_h - 24, "network: no NIC found", 11184810, 2236962)
             }
+            ling_kernel_fb_present()
         }
     }
 }

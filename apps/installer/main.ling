@@ -1,0 +1,93 @@
+// Shared installer business logic -- the actual disk/mount/package/
+// bootloader work, `use`-shared between the text-mode installer (kernel/
+// x86_64-installer) and the graphics-mode installer (kernel/
+// x86_64-installer-gui). Multiboot2's framebuffer request is a build-time
+// header decision (see `ling_kernel_init`'s doc), so "GUI installer" and
+// "text installer" can't be one dynamically-switching kernel image -- they
+// have to be two kernel targets. Sharing this module is what makes them
+// genuinely "the same installer" rather than two independently-maintained
+// copies of the install logic: each front-end owns its own UI (locale
+// picker, hostname prompt, package list) and calls into these same
+// functions to actually do the work, so a fix here fixes both.
+
+fn installer_mount() {
+    return ling_kernel_fs_mount()
+}
+
+// Non-zero (a real marker length) once first-time setup has already run on
+// this disk.
+fn installer_is_first_run_done() {
+    bind marker = ling_kernel_fs_read("/installed")
+    return len(marker)
+}
+
+fn installer_save_locale(locale_idx) {
+    ling_kernel_fs_write("/locale", ling_kernel_locale_id(locale_idx))
+}
+
+fn installer_save_hostname(hostname) {
+    if len(hostname) == 0 {
+        ling_kernel_fs_write("/hostname", "lingos")
+    } else {
+        ling_kernel_fs_write("/hostname", hostname)
+    }
+    ling_kernel_fs_write("/installed", "1")
+}
+
+fn installer_hostname() {
+    return ling_kernel_fs_read("/hostname")
+}
+
+// A real (not simulated) e1000 bring-up attempt -- see drivers::net_e1000's
+// module doc for the real, disclosed limit: this can report the NIC found
+// and its link up, but actual packet delivery is still an open bug, so
+// "connected to the internet" isn't a claim this makes. Returns 1 if a NIC
+// was found and initialized, 0 if none exists.
+fn installer_net_attempt() {
+    return ling_kernel_net_init()
+}
+
+// Create the root account (password only -- the username is fixed, matching
+// how every other installer on earth treats "root"). Returns 1 on success,
+// 0 on an empty password or a lingfs write failure.
+fn installer_create_root(password) {
+    return ling_kernel_user_create("root", password, "", "", "", "", "wheel")
+}
+
+// Create a regular (non-wheel) user account. Returns 1 on success, 0 on an
+// empty username/password or a lingfs write failure.
+fn installer_create_user(username, password) {
+    if len(username) == 0 {
+        return 0
+    }
+    return ling_kernel_user_create(username, password, "", "", "", "", "users")
+}
+
+// Returns 1 on success, 0 on failure, 2 if `pkg_name` was blank (skipped,
+// not attempted -- distinct from a real failure so a caller can render
+// "skipped" instead of "failed").
+fn installer_install_package(pkg_name) {
+    if len(pkg_name) == 0 {
+        return 2
+    }
+    return ling_kernel_pkg_install(pkg_name)
+}
+
+// Writes the bootloader payload GRUB handed this kernel (as a Multiboot2
+// module) to LBA 0 of the target disk, so it boots standalone afterward.
+// Returns 1 on success, 0 if no boot payload module was found at all (the
+// installer was launched some other way than the real Install GRUB entry).
+fn installer_write_bootloader() {
+    bind mod_addr = ling_kernel_bootmodule_addr()
+    if mod_addr == 0 {
+        return 0
+    }
+    bind mod_size = ling_kernel_bootmodule_size()
+    // diskboot.img is built as an exact concatenation of sector-sized
+    // pieces (see build-diskboot-x86_64.sh), so this divides evenly -- no
+    // rounding needed (and floor/ceil aren't available in a no_std kernel
+    // build anyway).
+    bind sectors = mod_size / 512
+    ling_kernel_disk_write_raw(0, mod_addr, sectors)
+    return 1
+}

@@ -1,26 +1,25 @@
-// LingOS — installer entry point.
+// LingOS — text-mode installer front-end.
 //
-// "Install" does real work: mount (formatting on first run) the target
-// disk's lingfs volume, run a small one-time setup wizard (hostname) the
-// first time the volume looks blank, and persist it. It also installs a
-// real bootloader (stage1/stage2, see ../../bootloader/) so the disk can
-// boot standalone afterward, without the Live CD/GRUB present — GRUB's
-// `module2` (see ../../live/grub.cfg) hands this program the bootloader
-// payload already loaded into memory (no ISO9660 driver needed to read it
-// off the CD), and it's written straight to LBA 0 via
-// `ling_kernel_disk_write_raw`, bypassing lingfs (which starts at
-// LBA 8192, see `lingfs::LINGFS_BASE_LBA`, specifically to leave this
-// region free). Then it hands off to lsh (apps/lsh/main.ling, `use`-shared
-// -- same shell the Live entry boots), so the disk it just set up is
-// immediately usable too.
+// The actual install work (mount, persist locale/hostname, package
+// install, bootloader write) lives in apps/installer/main.ling, shared
+// with the graphics-mode front-end (kernel/x86_64-installer-gui) -- this
+// file is UI only: prompts, reads, and rendering, all through the VGA text
+// console. Same 7-step flow as the GUI installer (system language, locale/
+// timezone, hostname, network, root account, user account, packages) --
+// see that target's module doc for why "language" and "locale/timezone"
+// are two passes over the same table rather than two different ones, and
+// why full UI translation isn't implemented. After installing, hands off
+// to lsh (apps/lsh/main.ling, `use`-shared -- same shell the Live entry
+// boots), so the disk it just set up is immediately usable too.
 use "../../apps/lsh/main"
+use "../../apps/installer/main"
 
 // VGA text mode can't render the CJK/Thai/Daemon scripts `drivers::
-// font_unicode` bakes for the (framebuffer-only) WM locale picker -- no
-// linear framebuffer exists here at all (this target keeps the plain
-// Multiboot2 header, see the framebuffer/text-mode split in `ling_kernel::
-// init`'s doc). So this picker is Latin-name-only, a real but visibly
-// smaller version of the WM's picker, not the full thing.
+// font_unicode` bakes for the graphics-mode locale picker -- no linear
+// framebuffer exists here at all (this target keeps the plain Multiboot2
+// header, see the framebuffer/text-mode split in `ling_kernel::init`'s
+// doc). So this picker is Latin-name-only, a real but visibly smaller
+// version of the graphics picker, not the full thing.
 fn print_locale_option(i) {
     bind name = ling_kernel_locale_latin_name(i)
     ling_kernel_vga_write_str("  ")
@@ -30,21 +29,11 @@ fn print_locale_option(i) {
     ling_kernel_vga_write_str("\n")
 }
 
-bind start = do {
-    ling_kernel_init()
-    ling_kernel_mouse_init()
-
-    ling_kernel_vga_set_color(12, 0)
-    ling_kernel_vga_write_str("================================================================\n")
-    ling_kernel_vga_set_color(15, 0)
-    ling_kernel_vga_write_str("  LingOS installer\n")
-    ling_kernel_vga_set_color(12, 0)
-    ling_kernel_vga_write_str("================================================================\n")
-    ling_kernel_vga_set_color(7, 0)
-
-    // Language/locale choice, as the first real step -- before mount, since
-    // it's pure UI with nothing to persist yet.
-    ling_kernel_vga_write_str("\nChoose a language / locale (id, e.g. \"en-US\"):\n")
+// Shared by both the language and locale/timezone steps -- see this file's
+// module doc for why they're two passes over the same table.
+fn text_pick_locale(prompt) {
+    ling_kernel_vga_write_str(prompt)
+    ling_kernel_vga_write_str("\n")
     print_locale_option(0)
     print_locale_option(1)
     print_locale_option(2)
@@ -55,87 +44,118 @@ bind start = do {
     print_locale_option(7)
     print_locale_option(8)
     ling_kernel_vga_write_str("> ")
-    bind locale_pick = ling_kernel_read_line()
-    bind locale_idx = ling_kernel_locale_index_of_id(locale_pick)
-    ling_kernel_locale_select(locale_idx)
+    bind pick = ling_kernel_read_line()
+    return ling_kernel_locale_index_of_id(pick)
+}
+
+bind start = do {
+    ling_kernel_init()
+    ling_kernel_mouse_init()
+
+    ling_kernel_vga_set_color(12, 0)
+    ling_kernel_vga_write_str("================================================================\n")
+    ling_kernel_vga_set_color(15, 0)
+    ling_kernel_vga_write_str("  LingOS installer (text)\n")
+    ling_kernel_vga_set_color(12, 0)
+    ling_kernel_vga_write_str("================================================================\n")
+    ling_kernel_vga_set_color(7, 0)
+
+    bind lang_idx = text_pick_locale("\nStep 1/7 -- Choose your system language (id, e.g. \"en-US\"):")
+    bind locale_idx = text_pick_locale("\nStep 2/7 -- Choose your locale and timezone (id, e.g. \"th-TH\"):")
     ling_kernel_vga_set_color(10, 0)
     ling_kernel_vga_write_str("Locale: ")
     ling_kernel_print_lstr(ling_kernel_locale_latin_name(locale_idx))
     ling_kernel_vga_write_str("\n")
     ling_kernel_vga_set_color(7, 0)
 
-    bind fs_ok = ling_kernel_fs_mount()
+    bind fs_ok = installer_mount()
     if fs_ok == 1 {
         ling_kernel_vga_set_color(10, 0)
         ling_kernel_vga_write_str("disk volume mounted\n")
-        ling_kernel_fs_write("/locale", ling_kernel_locale_id(locale_idx))
+        ling_kernel_vga_set_color(7, 0)
+        installer_save_locale(locale_idx)
+        ling_kernel_fs_write("/language", ling_kernel_locale_id(lang_idx))
     } else {
         ling_kernel_vga_set_color(4, 0)
         ling_kernel_vga_write_str("disk volume mount FAILED -- cannot install\n")
-    }
-    ling_kernel_vga_set_color(7, 0)
-
-    bind marker = ling_kernel_fs_read("/installed")
-
-    if len(marker) == 0 {
-        ling_kernel_vga_write_str("\nFirst-time setup -- this only runs once per disk.\n")
-        ling_kernel_vga_write_str("Hostname for this system: ")
-        bind hn = ling_kernel_read_line()
-        if len(hn) == 0 {
-            ling_kernel_fs_write("/hostname", "lingos")
-        } else {
-            ling_kernel_fs_write("/hostname", hn)
-        }
-        ling_kernel_fs_write("/installed", "1")
-        ling_kernel_vga_set_color(10, 0)
-        ling_kernel_vga_write_str("Setup saved to disk.\n")
         ling_kernel_vga_set_color(7, 0)
+        run_shell()
+    }
 
-        // Package selection: `catalog/` is a lingfs directory of .lpkg
-        // blobs already present on the install media (no network registry
-        // exists yet -- see packages/README.md). One package per prompt,
-        // not a multi-select checklist: this shell has no list/loop
-        // primitive to walk a typed multi-name line with, and a real
-        // Next/Back GUI package screen is still future work (see the WM's
-        // own module doc for the same "best-effort, some pieces deferred"
-        // scoping this session already used elsewhere).
-        ling_kernel_vga_write_str("\nAvailable packages (catalog/):\n")
-        ling_kernel_fs_ls("catalog")
-        ling_kernel_vga_write_str("Package to install now (blank to skip, more later via 'lingfu install'): ")
-        bind pick = ling_kernel_read_line()
-        if len(pick) != 0 {
-            bind pick_ok = ling_kernel_pkg_install(pick)
+    if installer_is_first_run_done() == 0 {
+        ling_kernel_vga_write_str("\nFirst-time setup -- this only runs once per disk.\n")
+
+        ling_kernel_vga_write_str("\nStep 3/7 -- Hostname for this system: ")
+        bind hn = ling_kernel_read_line()
+        installer_save_hostname(hn)
+
+        ling_kernel_vga_write_str("\nStep 4/7 -- Setting up network...\n")
+        bind net_ok = installer_net_attempt()
+        if net_ok == 1 {
+            ling_kernel_vga_set_color(10, 0)
+            ling_kernel_vga_write_str("network: adapter found, link up (internet reachability is a known open issue -- see the project backlog)\n")
+            ling_kernel_vga_set_color(7, 0)
+        } else {
+            ling_kernel_vga_set_color(12, 0)
+            ling_kernel_vga_write_str("network: no adapter found -- continuing offline\n")
+            ling_kernel_vga_set_color(7, 0)
+        }
+
+        ling_kernel_vga_write_str("\nStep 5/7 -- Set a password for the root account: ")
+        bind root_pw = ling_kernel_read_line_masked()
+        installer_create_root(root_pw)
+
+        ling_kernel_vga_write_str("\nStep 6/7 -- Create a user account (username, blank to skip): ")
+        bind user_name = ling_kernel_read_line()
+        if len(user_name) != 0 {
+            ling_kernel_vga_write_str("Password for this account: ")
+            bind user_pw = ling_kernel_read_line_masked()
+            installer_create_user(user_name, user_pw)
+        }
+
+        // No real package catalog ships by default (no network registry
+        // exists yet -- see packages/README.md's roadmap); this offers to
+        // install one .lpkg blob already present in catalog/ on the
+        // install media. One package per prompt, not a multi-select
+        // checklist: this shell has no list/loop primitive to walk a
+        // typed multi-name line with. Skipped entirely without a NIC, per
+        // "without network we should just install the base system."
+        if net_ok == 1 {
+            ling_kernel_vga_write_str("\nStep 7/7 -- Available packages (catalog/):\n")
+            ling_kernel_fs_ls("catalog")
+            ling_kernel_vga_write_str("Package to install now (blank to skip, more later via 'lingfu install'): ")
+            bind pick = ling_kernel_read_line()
+            bind pick_ok = installer_install_package(pick)
             if pick_ok == 1 {
                 ling_kernel_vga_set_color(10, 0)
                 ling_kernel_vga_write_str("installed.\n")
                 ling_kernel_vga_set_color(7, 0)
-            } else {
+            } else if pick_ok == 0 {
                 ling_kernel_vga_set_color(12, 0)
                 ling_kernel_vga_write_str("install failed (not found in catalog/) -- try again later with 'lingfu install'.\n")
                 ling_kernel_vga_set_color(7, 0)
             }
+        } else {
+            ling_kernel_vga_write_str("\nStep 7/7 -- no network adapter: installing the base system only.\n")
         }
+
+        ling_kernel_vga_set_color(10, 0)
+        ling_kernel_vga_write_str("\nSetup saved to disk.\n")
+        ling_kernel_vga_set_color(7, 0)
     } else {
-        bind hn = ling_kernel_fs_read("/hostname")
+        bind hn = installer_hostname()
         ling_kernel_vga_write_str("\nWelcome back, ")
         ling_kernel_print_lstr(hn)
         ling_kernel_vga_write_str(".\n")
     }
 
-    bind mod_addr = ling_kernel_bootmodule_addr()
-    if mod_addr == 0 {
+    bind boot_ok = installer_write_bootloader()
+    if boot_ok == 0 {
         ling_kernel_vga_set_color(4, 0)
         ling_kernel_vga_write_str("\nNo boot payload module found -- this disk will NOT boot\n")
         ling_kernel_vga_write_str("standalone (use 'Live' or 'Install' from the CD to get back in).\n\n")
         ling_kernel_vga_set_color(7, 0)
     } else {
-        bind mod_size = ling_kernel_bootmodule_size()
-        // diskboot.img is built as an exact concatenation of sector-sized
-        // pieces (see build-diskboot-x86_64.sh), so this divides evenly --
-        // no rounding needed (and `floor`/`ceil` aren't available in a
-        // no_std kernel build anyway).
-        bind sectors = mod_size / 512
-        ling_kernel_disk_write_raw(0, mod_addr, sectors)
         ling_kernel_vga_set_color(10, 0)
         ling_kernel_vga_write_str("\nBootloader installed -- this disk can now boot standalone.\n")
         ling_kernel_vga_write_str("You can remove the Live CD and reboot.\n\n")

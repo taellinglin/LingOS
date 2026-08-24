@@ -15,28 +15,31 @@ DIST_DIR="$LINGOS_ROOT/dist"
 ISO_ROOT="$SCRIPT_DIR/.isoroot-x86_64"
 ISO_OUT="$DIST_DIR/lingos-x86_64.iso"
 
-LIVE_ELF="$DIST_DIR/kernel/lingos-kernel-x86_64"
+TEXT_ELF="$DIST_DIR/kernel/lingos-kernel-x86_64"
 INSTALLER_ELF="$DIST_DIR/kernel/lingos-installer-x86_64"
+INSTALLER_GUI_ELF="$DIST_DIR/kernel/lingos-installer-gui-x86_64"
 WM_ELF="$DIST_DIR/kernel/lingos-wm-x86_64"
-for f in "$LIVE_ELF" "$INSTALLER_ELF" "$WM_ELF"; do
+for f in "$TEXT_ELF" "$INSTALLER_ELF" "$INSTALLER_GUI_ELF" "$WM_ELF"; do
     if [ ! -f "$f" ]; then
         echo "error: expected kernel ELF not found at $f" >&2
-        echo "  build all three first (from Windows): live/build-iso-x86_64.ps1, or:" >&2
+        echo "  build all four first (from Windows): live/build-iso-x86_64.ps1, or:" >&2
         echo "  ling.exe build kernel/x86_64 --platform kernel --out dist" >&2
         echo "  ling.exe build kernel/x86_64-installer --platform kernel --out dist" >&2
+        echo "  ling.exe build kernel/x86_64-installer-gui --platform kernel --out dist" >&2
         echo "  ling.exe build kernel/x86_64-wm --platform kernel --out dist" >&2
         exit 1
     fi
 done
 
-echo "==> building disk-boot payload (bootloader + flattened Live kernel)"
+echo "==> building disk-boot payload (bootloader + flattened text kernel)"
 "$SCRIPT_DIR/build-diskboot-x86_64.sh"
 
-echo "==> assembling GRUB ISO (Live + Install + Desktop menu entries)"
+echo "==> assembling GRUB ISO (Live desktop / Install GUI+text / Rescue)"
 rm -rf "$ISO_ROOT"
 mkdir -p "$ISO_ROOT/boot/grub"
-cp "$LIVE_ELF" "$ISO_ROOT/boot/lingos-x86_64.elf"
+cp "$TEXT_ELF" "$ISO_ROOT/boot/lingos-x86_64.elf"
 cp "$INSTALLER_ELF" "$ISO_ROOT/boot/lingos-installer-x86_64.elf"
+cp "$INSTALLER_GUI_ELF" "$ISO_ROOT/boot/lingos-installer-gui-x86_64.elf"
 cp "$WM_ELF" "$ISO_ROOT/boot/lingos-wm-x86_64.elf"
 cp "$DIST_DIR/diskboot-x86_64.img" "$ISO_ROOT/boot/diskboot.img"
 cp "$SCRIPT_DIR/grub.cfg" "$ISO_ROOT/boot/grub/grub.cfg"

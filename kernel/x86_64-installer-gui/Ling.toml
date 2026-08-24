@@ -1,0 +1,6 @@
+[project]
+name = "lingos-installer-gui-x86_64"
+version = "0.1.0"
+entry = "main.ling"
+kind = "kernel"
+graphics = true

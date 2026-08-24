@@ -1,0 +1,138 @@
+// LingOS — graphics-mode installer front-end (the GRUB "Install (GUI)"
+// entry). The actual install work (mount, persist locale/hostname, package
+// install, bootloader write) lives in apps/installer/main.ling, shared
+// with the text-mode front-end (kernel/x86_64-installer) -- this file is
+// UI only, rendered into the framebuffer instead of the VGA text console.
+//
+// Flow: system language -> locale/timezone -> hostname -> network ->
+// root account -> user account -> app install (network permitting) ->
+// bootloader. Language and locale/timezone are two independent picks over
+// the *same* 9-entry table (see drivers::locale's module doc) -- this
+// project doesn't have a separate "language" table distinct from "region",
+// so "choose language, then choose locale/timezone" is honestly two passes
+// over one list (gui-common's `run_locale_picker` resets between calls so
+// the second pick isn't just an instant echo of the first), not two
+// different data sources. Only the locale/timezone pick is actually
+// persisted (`/locale`) and used for the picked-locale UI elsewhere
+// (native-script titles, the Live desktop); the language pick is recorded
+// to `/language` but doesn't yet drive full UI translation -- this
+// project's curated Unicode glyph coverage (see font_unicode's module doc)
+// is a handful of phrases per script, not enough vocabulary to translate
+// arbitrary installer prompts, so the screens below stay in English
+// regardless of the language step's choice. Disclosed here rather than
+// silently claimed as more than it is.
+//
+// Also honest: no mouse-driven widgets (buttons, text fields you click
+// into) -- everything here is full-screen, one step at a time, driven by
+// the keyboard, the same "render a screen, block on one read" idiom as the
+// text installer, just rendered as pixels instead of VGA text. A real
+// Next/Back multi-widget wizard is still future work. Root/user passwords
+// use `ling_kernel_gui_read_line_masked` (echoes `*`) -- "not shown on
+// screen," not a claim about storage-at-rest security beyond what
+// `fs/users.rs` already discloses.
+use "../../apps/gui-common/main"
+use "../../apps/installer/main"
+
+fn draw_status(text) {
+    ling_kernel_fb_back_clear(2236962)
+    ling_kernel_fb_draw_str(20, 20, "LingOS installer (GUI)", 16777215, 2236962)
+    ling_kernel_fb_draw_str(20, 60, text, 16777215, 2236962)
+    ling_kernel_fb_present()
+}
+
+fn draw_prompt_and_read(label) {
+    ling_kernel_fb_back_clear(2236962)
+    ling_kernel_fb_draw_str(20, 20, "LingOS installer (GUI)", 16777215, 2236962)
+    ling_kernel_fb_draw_str(20, 60, label, 16777215, 2236962)
+    ling_kernel_fb_present()
+    return ling_kernel_gui_read_line(20, 90, 16777215, 2236962)
+}
+
+fn draw_prompt_and_read_masked(label) {
+    ling_kernel_fb_back_clear(2236962)
+    ling_kernel_fb_draw_str(20, 20, "LingOS installer (GUI)", 16777215, 2236962)
+    ling_kernel_fb_draw_str(20, 60, label, 16777215, 2236962)
+    ling_kernel_fb_present()
+    return ling_kernel_gui_read_line_masked(20, 90, 16777215, 2236962)
+}
+
+bind start = do {
+    ling_kernel_init()
+    ling_kernel_mouse_init()
+
+    bind avail = ling_kernel_fb_available()
+    if avail == 0 {
+        ling_kernel_vga_write_str("no framebuffer -- the GUI installer needs graphics mode (use Install [text] instead)\n")
+    } else {
+        bind fb_w = ling_kernel_fb_width()
+        bind fb_h = ling_kernel_fb_height()
+        ling_kernel_mouse_set_bounds(fb_w, fb_h)
+
+        run_locale_picker("Step 1/7 -- Choose your system language:")
+        bind lang_idx = ling_kernel_locale_selected()
+
+        run_locale_picker("Step 2/7 -- Choose your locale and timezone:")
+        bind locale_idx = ling_kernel_locale_selected()
+
+        draw_status("Mounting disk...")
+        bind fs_ok = installer_mount()
+        if fs_ok == 0 {
+            draw_status("Disk mount FAILED -- cannot install. Reboot and try again.")
+            while 1 == 1 {
+                ling_kernel_fb_present()
+            }
+        }
+        installer_save_locale(locale_idx)
+        ling_kernel_fs_write("/language", ling_kernel_locale_id(lang_idx))
+
+        bind hn = draw_prompt_and_read("Step 3/7 -- Hostname for this system:")
+        installer_save_hostname(hn)
+
+        draw_status("Step 4/7 -- Setting up network...")
+        bind net_ok = installer_net_attempt()
+        if net_ok == 1 {
+            draw_status("Network: adapter found, link up. (Internet reachability is a known open issue -- see the project backlog. Continuing.)")
+        } else {
+            draw_status("Network: no adapter found -- continuing offline.")
+        }
+
+        bind root_pw = draw_prompt_and_read_masked("Step 5/7 -- Set a password for the root account:")
+        installer_create_root(root_pw)
+
+        bind user_name = draw_prompt_and_read("Step 6/7 -- Create a user account (username, blank to skip):")
+        if len(user_name) != 0 {
+            bind user_pw = draw_prompt_and_read_masked("Step 6/7 -- Password for this account:")
+            installer_create_user(user_name, user_pw)
+        }
+
+        // No real package catalog ships by default (no network registry
+        // exists yet -- see packages/README.md's roadmap); this offers to
+        // install one .lpkg blob already present in catalog/ on the
+        // install media, the same honest "install a file you already
+        // have" this whole package system is built on. Skipped entirely
+        // without a NIC, per "without network we should just install the
+        // base system."
+        if net_ok == 1 {
+            bind pick = draw_prompt_and_read("Step 7/7 -- Package to install now from catalog/ (blank to skip):")
+            bind pick_ok = installer_install_package(pick)
+            if pick_ok == 1 {
+                draw_status("Package installed.")
+            } else if pick_ok == 0 {
+                draw_status("Package install failed (not found in catalog/).")
+            }
+        } else {
+            draw_status("Step 7/7 -- No network adapter: installing the base system only.")
+        }
+
+        draw_status("Installing bootloader...")
+        bind boot_ok = installer_write_bootloader()
+        if boot_ok == 0 {
+            draw_status("No boot payload found -- this disk will NOT boot standalone.")
+        } else {
+            draw_status("Done. Remove the installation media and reboot.")
+        }
+        while 1 == 1 {
+            ling_kernel_fb_present()
+        }
+    }
+}
