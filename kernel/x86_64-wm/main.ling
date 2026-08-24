@@ -54,7 +54,7 @@ bind start = do {
         // checks for this line on the default (Live) GRUB entry.
         ling_kernel_vga_write_str("wm: entering interactive loop\n")
 
-        run_locale_picker("Welcome to LingOS -- choose a language / locale:")
+        run_locale_picker("Welcome to LingOS -- choose a language / locale", 1, 1)
         bind locale_idx = ling_kernel_locale_selected()
 
         // One-time setup, now that a locale is picked: mount, a default
@@ -65,9 +65,15 @@ bind start = do {
         ling_kernel_user_login("live", "live")
         bind net_ok = ling_kernel_net_init()
 
-        bind ww = 320
-        bind wh = 200
-        bind titlebar_h = 24
+        // Sized in virtual-canvas units (drivers::ui_scale's module doc),
+        // like every installer screen -- proportionate to the real screen
+        // instead of a fixed 320x200 that'd look tiny on a big monitor or
+        // oversized on a small one. Position (rx/ry below) stays real-pixel
+        // throughout: it follows the real mouse cursor, which is already in
+        // real framebuffer pixel space, not a design-canvas one.
+        bind ww = ling_kernel_ui_len(320)
+        bind wh = ling_kernel_ui_len(200)
+        bind titlebar_h = ling_kernel_ui_len(24)
 
         while 1 == 1 {
             ling_kernel_mouse_poll()
@@ -107,11 +113,13 @@ bind start = do {
             ling_kernel_fb_draw_utf8_str(rx + 6, ry + 4, title, 16777215, 1710757, title_daemon)
             ling_kernel_fb_back_fill_rect(mx, my, 8, 8, 16777215)
 
-            // Real (not decorative) network status, bottom-left.
+            // Real (not decorative) network status, bottom-left. `fb_h`
+            // (not a ui_y() call) since this anchors to the real bottom
+            // edge, not a virtual-canvas position.
             if net_ok == 1 {
-                ling_kernel_fb_draw_str(20, fb_h - 24, "network: NIC up (internet not yet reachable)", 11184810, 2236962)
+                ling_kernel_fb_draw_str(ling_kernel_ui_x(20), fb_h - 24, "network: NIC up (internet not yet reachable)", 11184810, 2236962)
             } else {
-                ling_kernel_fb_draw_str(20, fb_h - 24, "network: no NIC found", 11184810, 2236962)
+                ling_kernel_fb_draw_str(ling_kernel_ui_x(20), fb_h - 24, "network: no NIC found", 11184810, 2236962)
             }
             ling_kernel_fb_present()
         }

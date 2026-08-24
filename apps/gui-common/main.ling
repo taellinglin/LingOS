@@ -1,56 +1,133 @@
 // Shared graphics-mode UI pieces -- `use`-shared between kernel/x86_64-wm
 // (the Live desktop) and kernel/x86_64-installer-gui (the GUI installer),
-// so the locale picker is pixel-for-pixel the same experience in both
-// rather than two copies that could drift apart.
+// so the look and interaction (a purple header bar + progress indicator,
+// arrow-key/Enter navigation with a highlighted row) is pixel-for-pixel
+// the same experience in both rather than two copies that could drift
+// apart.
+//
+// Every position/size below is a *virtual* coordinate in a fixed 960x600
+// design canvas, routed through `ling_kernel_ui_x`/`_ui_y`/`_ui_len`
+// (`drivers::ui_scale`'s module doc) before it ever reaches a real
+// `ling_kernel_fb_*` call -- authored once, correct whether the real
+// negotiated Multiboot2 framebuffer mode is 800x600 or 1920x1080, instead
+// of every screen assuming whatever resolution it happened to get tested
+// at. Real, disclosed gap this doesn't close: text stays a fixed pixel
+// size regardless of scale (see ui_scale's own doc for why).
+//
+// Palette: a small fixed set of named colors instead of magic numbers
+// scattered through every screen, so the whole installer/desktop reads as
+// one consistent design rather than whatever color happened to get typed
+// at each call site.
+fn color_bg() {
+    return 2236962 // dark grey -- base background
+}
+fn color_header() {
+    return 3813468 // dark purple -- matches the "In Ling" purple already
+                    // used on os.ling-lang.org and the Ling Country flag
+}
+fn color_accent() {
+    return 10181046 // vivid amethyst (0x9B59B6) -- progress fill,
+                     // highlighted row. (An earlier value here, 8947848,
+                     // was a hand-computed-wrong literal that turned out
+                     // to be plain grey [0x888888], not purple at all --
+                     // confirmed via an actual screendump, not just
+                     // theory; verified this one with printf/bash hex
+                     // arithmetic instead of mental math.)
+}
+fn color_text() {
+    return 16777215 // white
+}
+fn color_dim() {
+    return 11184810 // light grey -- hints, secondary text
+}
+fn color_error() {
+    return 15029760 // amber/orange -- errors without the alarm of pure red
+}
 
-fn draw_locale_row(i, y) {
+// Draws the header bar (title + a step/total progress fill) and clears the
+// body to the base background -- every installer/desktop screen starts by
+// calling this, so headers, spacing, and the progress bar are pixel-
+// identical across screens instead of each one reimplementing them
+// slightly differently. `title` should already say "Step N/7 -- ..." as
+// literal text (there's no integer-to-string conversion available in a
+// kernel build to compose that dynamically) -- `step`/`total` only drive
+// the progress bar's fill width, a real (if approximate) arithmetic
+// computation, not text.
+fn draw_screen_frame(title, step, total) {
+    ling_kernel_fb_back_clear(color_bg())
+    ling_kernel_fb_back_fill_rect(ling_kernel_ui_x(0), ling_kernel_ui_y(0), ling_kernel_ui_len(960), ling_kernel_ui_len(56), color_header())
+    ling_kernel_fb_draw_str(ling_kernel_ui_x(20), ling_kernel_ui_y(20), title, color_text(), color_header())
+
+    bind bar_w = 300
+    bind filled_w = bar_w * step / total
+    ling_kernel_fb_back_fill_rect(ling_kernel_ui_x(20), ling_kernel_ui_y(68), ling_kernel_ui_len(bar_w), ling_kernel_ui_len(6), color_header())
+    ling_kernel_fb_back_fill_rect(ling_kernel_ui_x(20), ling_kernel_ui_y(68), ling_kernel_ui_len(filled_w), ling_kernel_ui_len(6), color_accent())
+}
+
+// Real if/else on `i == cursor`, not an arithmetic blend on the comparison
+// result -- unlike `left_down` elsewhere (which comes from `buttons % 2`,
+// a modulo, genuinely always 0 or 1), whether `==`'s result is safe to use
+// directly in arithmetic was never actually confirmed, and an earlier
+// blended-color version of this function rendered every row identically
+// blank (confirmed via an actual screendump) rather than highlighting the
+// cursor row -- real if/else is the proven-reliable construct here.
+fn draw_locale_row(i, y, cursor) {
     bind native = ling_kernel_locale_native_name(i)
     bind daemon = ling_kernel_locale_uses_daemon(i)
     bind flag_id = ling_kernel_locale_flag_id(i)
-    ling_kernel_fb_draw_flag(flag_id, 20, y, 28, 18)
-    ling_kernel_fb_draw_utf8_str(60, y + 1, native, 16777215, 2236962, daemon)
+    bind px = ling_kernel_ui_x(16)
+    bind py = ling_kernel_ui_y(y - 3)
+    bind pw = ling_kernel_ui_len(700)
+    bind ph = ling_kernel_ui_len(24)
+    bind flag_x = ling_kernel_ui_x(24)
+    bind flag_y = ling_kernel_ui_y(y)
+    bind flag_w = ling_kernel_ui_len(26)
+    bind flag_h = ling_kernel_ui_len(17)
+    bind text_x = ling_kernel_ui_x(62)
+    bind text_y = ling_kernel_ui_y(y + 1)
+    if i == cursor {
+        ling_kernel_fb_back_fill_rect(px, py, pw, ph, color_accent())
+        ling_kernel_fb_draw_flag(flag_id, flag_x, flag_y, flag_w, flag_h)
+        ling_kernel_fb_draw_utf8_str(text_x, text_y, native, color_text(), color_accent(), daemon)
+    } else {
+        ling_kernel_fb_back_fill_rect(px, py, pw, ph, color_bg())
+        ling_kernel_fb_draw_flag(flag_id, flag_x, flag_y, flag_w, flag_h)
+        ling_kernel_fb_draw_utf8_str(text_x, text_y, native, color_dim(), color_bg(), daemon)
+    }
 }
 
-// There are exactly 9 locales in `drivers::locale`'s table -- explicitly
-// unrolled rather than looped, since a `while`-loop counter is exactly the
-// kind of frame-to-frame mutable state `.ling`'s AOT kernel path doesn't
-// have (see `drivers::locale::select`'s doc for the same reasoning applied
-// to the selection itself).
-fn draw_locale_picker(title) {
-    ling_kernel_fb_back_clear(2236962)
-    ling_kernel_fb_draw_str(20, 20, title, 16777215, 2236962)
-    draw_locale_row(0, 50)
-    draw_locale_row(1, 74)
-    draw_locale_row(2, 98)
-    draw_locale_row(3, 122)
-    draw_locale_row(4, 146)
-    draw_locale_row(5, 170)
-    draw_locale_row(6, 194)
-    draw_locale_row(7, 218)
-    draw_locale_row(8, 242)
-    ling_kernel_fb_draw_str(20, 270, "press 0-8", 11184810, 2236962)
+// 9 locales in `drivers::locale`'s table -- explicitly unrolled rather
+// than looped, since a `while`-loop counter is exactly the kind of frame-
+// to-frame mutable state `.ling`'s AOT kernel path doesn't have (see
+// `drivers::locale::select`'s doc for the same reasoning applied to the
+// selection itself).
+fn draw_locale_picker(title, step, total) {
+    draw_screen_frame(title, step, total)
+    bind cursor = ling_kernel_locale_cursor()
+    draw_locale_row(0, 96, cursor)
+    draw_locale_row(1, 122, cursor)
+    draw_locale_row(2, 148, cursor)
+    draw_locale_row(3, 174, cursor)
+    draw_locale_row(4, 200, cursor)
+    draw_locale_row(5, 226, cursor)
+    draw_locale_row(6, 252, cursor)
+    draw_locale_row(7, 278, cursor)
+    draw_locale_row(8, 304, cursor)
+    ling_kernel_fb_draw_str(ling_kernel_ui_x(20), ling_kernel_ui_y(340), "up/down to move, enter to select", color_dim(), color_bg())
     ling_kernel_fb_present()
 }
 
 fn locale_picker_handle_key(key) {
-    if key == 48 {
-        ling_kernel_locale_select(0)
-    } else if key == 49 {
-        ling_kernel_locale_select(1)
-    } else if key == 50 {
-        ling_kernel_locale_select(2)
-    } else if key == 51 {
-        ling_kernel_locale_select(3)
-    } else if key == 52 {
-        ling_kernel_locale_select(4)
-    } else if key == 53 {
-        ling_kernel_locale_select(5)
-    } else if key == 54 {
-        ling_kernel_locale_select(6)
-    } else if key == 55 {
-        ling_kernel_locale_select(7)
-    } else if key == 56 {
-        ling_kernel_locale_select(8)
+    if key == 17 {
+        // UP_ARROW, see keyboard.rs -- reported as DC1 (0x11)
+        ling_kernel_locale_cursor_up()
+    } else if key == 18 {
+        // DOWN_ARROW -- DC2 (0x12)
+        ling_kernel_locale_cursor_down()
+    } else if key == 10 {
+        // Enter -- scancode 0x1C maps to '\n' (LF), not '\r' (confirmed
+        // against keyboard.rs's SCANCODE_ASCII table).
+        ling_kernel_locale_confirm_cursor()
     }
 }
 
@@ -63,11 +140,11 @@ fn locale_picker_handle_key(key) {
 // installer's wizard (see its module doc for why one table serves both),
 // so calling this a second time for the second step needs to forget the
 // first pick, not just re-report it instantly.
-fn run_locale_picker(title) {
+fn run_locale_picker(title, step, total) {
     ling_kernel_locale_reset()
     bind locale_count = ling_kernel_locale_count()
     while ling_kernel_locale_selected() == locale_count {
-        draw_locale_picker(title)
+        draw_locale_picker(title, step, total)
         bind key = ling_kernel_kbd_poll_char()
         locale_picker_handle_key(key)
     }

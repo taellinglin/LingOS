@@ -5,11 +5,14 @@
 // with the graphics-mode front-end (kernel/x86_64-installer-gui) -- this
 // file is UI only: prompts, reads, and rendering, all through the VGA text
 // console. Same 7-step flow as the GUI installer (system language, locale/
-// timezone, hostname, network, root account, user account, packages) --
-// see that target's module doc for why "language" and "locale/timezone"
-// are two passes over the same table rather than two different ones, and
-// why full UI translation isn't implemented. After installing, hands off
-// to lsh (apps/lsh/main.ling, `use`-shared -- same shell the Live entry
+// timezone, hostname, network, root account, user account, packages), and
+// the same keyboard-only interaction model -- arrow keys + Enter to pick a
+// language/locale (a highlighted row via inverted colors, not a raw digit
+// press), typed-twice-and-checked passwords for root/user accounts -- see
+// that target's module doc for why "language" and "locale/timezone" are
+// two passes over the same table rather than two different ones, and why
+// full UI translation isn't implemented. After installing, hands off to
+// lsh (apps/lsh/main.ling, `use`-shared -- same shell the Live entry
 // boots), so the disk it just set up is immediately usable too.
 use "../../apps/lsh/main"
 use "../../apps/installer/main"
@@ -20,38 +23,26 @@ use "../../apps/installer/main"
 // header, see the framebuffer/text-mode split in `ling_kernel::init`'s
 // doc). So this picker is Latin-name-only, a real but visibly smaller
 // version of the graphics picker, not the full thing.
-fn print_locale_option(i) {
+fn print_locale_option(i, cursor) {
     bind name = ling_kernel_locale_latin_name(i)
+    if i == cursor {
+        // Inverted highlight (bright white on blue) for the row under the
+        // cursor -- the closest VGA text-mode equivalent of the graphics
+        // picker's highlighted row.
+        ling_kernel_vga_set_color(15, 1)
+    } else {
+        ling_kernel_vga_set_color(7, 0)
+    }
     ling_kernel_vga_write_str("  ")
     ling_kernel_print_lstr(ling_kernel_locale_id(i))
     ling_kernel_vga_write_str(") ")
     ling_kernel_print_lstr(name)
-    ling_kernel_vga_write_str("\n")
+    ling_kernel_vga_write_str("                                        \n")
+    ling_kernel_vga_set_color(7, 0)
 }
 
-// Shared by both the language and locale/timezone steps -- see this file's
-// module doc for why they're two passes over the same table.
-fn text_pick_locale(prompt) {
-    ling_kernel_vga_write_str(prompt)
-    ling_kernel_vga_write_str("\n")
-    print_locale_option(0)
-    print_locale_option(1)
-    print_locale_option(2)
-    print_locale_option(3)
-    print_locale_option(4)
-    print_locale_option(5)
-    print_locale_option(6)
-    print_locale_option(7)
-    print_locale_option(8)
-    ling_kernel_vga_write_str("> ")
-    bind pick = ling_kernel_read_line()
-    return ling_kernel_locale_index_of_id(pick)
-}
-
-bind start = do {
-    ling_kernel_init()
-    ling_kernel_mouse_init()
-
+fn draw_locale_screen(prompt) {
+    ling_kernel_vga_clear()
     ling_kernel_vga_set_color(12, 0)
     ling_kernel_vga_write_str("================================================================\n")
     ling_kernel_vga_set_color(15, 0)
@@ -59,11 +50,62 @@ bind start = do {
     ling_kernel_vga_set_color(12, 0)
     ling_kernel_vga_write_str("================================================================\n")
     ling_kernel_vga_set_color(7, 0)
+    ling_kernel_vga_write_str(prompt)
+    ling_kernel_vga_write_str("\n")
+    bind cursor = ling_kernel_locale_cursor()
+    print_locale_option(0, cursor)
+    print_locale_option(1, cursor)
+    print_locale_option(2, cursor)
+    print_locale_option(3, cursor)
+    print_locale_option(4, cursor)
+    print_locale_option(5, cursor)
+    print_locale_option(6, cursor)
+    print_locale_option(7, cursor)
+    print_locale_option(8, cursor)
+    ling_kernel_vga_set_color(8, 0)
+    ling_kernel_vga_write_str("\nup/down to move, enter to select\n")
+    ling_kernel_vga_set_color(7, 0)
+}
 
-    bind lang_idx = text_pick_locale("\nStep 1/7 -- Choose your system language (id, e.g. \"en-US\"):")
-    bind locale_idx = text_pick_locale("\nStep 2/7 -- Choose your locale and timezone (id, e.g. \"th-TH\"):")
+fn handle_nav_key(key) {
+    if key == 17 {
+        ling_kernel_locale_cursor_up()
+    } else if key == 18 {
+        ling_kernel_locale_cursor_down()
+    } else if key == 10 {
+        ling_kernel_locale_confirm_cursor()
+    }
+}
+
+// Shared by both the language and locale/timezone steps -- see this file's
+// module doc for why they're two passes over the same table.
+fn text_pick_locale(prompt) {
+    ling_kernel_locale_reset()
+    bind locale_count = ling_kernel_locale_count()
+    while ling_kernel_locale_selected() == locale_count {
+        draw_locale_screen(prompt)
+        bind key = ling_kernel_kbd_poll_char()
+        handle_nav_key(key)
+    }
+    return ling_kernel_locale_selected()
+}
+
+bind start = do {
+    ling_kernel_init()
+    ling_kernel_mouse_init()
+
+    bind lang_idx = text_pick_locale("Step 1/7 -- Choose your system language:")
+    bind locale_idx = text_pick_locale("Step 2/7 -- Choose your locale and timezone:")
+
+    ling_kernel_vga_clear()
+    ling_kernel_vga_set_color(12, 0)
+    ling_kernel_vga_write_str("================================================================\n")
+    ling_kernel_vga_set_color(15, 0)
+    ling_kernel_vga_write_str("  LingOS installer (text)\n")
+    ling_kernel_vga_set_color(12, 0)
+    ling_kernel_vga_write_str("================================================================\n")
     ling_kernel_vga_set_color(10, 0)
-    ling_kernel_vga_write_str("Locale: ")
+    ling_kernel_vga_write_str("\nLocale: ")
     ling_kernel_print_lstr(ling_kernel_locale_latin_name(locale_idx))
     ling_kernel_vga_write_str("\n")
     ling_kernel_vga_set_color(7, 0)
@@ -101,15 +143,14 @@ bind start = do {
             ling_kernel_vga_set_color(7, 0)
         }
 
-        ling_kernel_vga_write_str("\nStep 5/7 -- Set a password for the root account: ")
-        bind root_pw = ling_kernel_read_line_masked()
+        ling_kernel_vga_write_str("\nStep 5/7 -- Set a password for the root account\n")
+        bind root_pw = ling_kernel_read_line_masked_confirmed()
         installer_create_root(root_pw)
 
         ling_kernel_vga_write_str("\nStep 6/7 -- Create a user account (username, blank to skip): ")
         bind user_name = ling_kernel_read_line()
         if len(user_name) != 0 {
-            ling_kernel_vga_write_str("Password for this account: ")
-            bind user_pw = ling_kernel_read_line_masked()
+            bind user_pw = ling_kernel_read_line_masked_confirmed()
             installer_create_user(user_name, user_pw)
         }
 

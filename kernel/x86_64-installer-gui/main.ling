@@ -3,6 +3,9 @@
 // install, bootloader write) lives in apps/installer/main.ling, shared
 // with the text-mode front-end (kernel/x86_64-installer) -- this file is
 // UI only, rendered into the framebuffer instead of the VGA text console.
+// The purple header bar, progress fill, and color palette come from
+// apps/gui-common/main.ling's `draw_screen_frame`, so every screen here
+// (and the Live desktop's own locale picker) shares one consistent look.
 //
 // Flow: system language -> locale/timezone -> hostname -> network ->
 // root account -> user account -> app install (network permitting) ->
@@ -22,38 +25,43 @@
 // regardless of the language step's choice. Disclosed here rather than
 // silently claimed as more than it is.
 //
-// Also honest: no mouse-driven widgets (buttons, text fields you click
-// into) -- everything here is full-screen, one step at a time, driven by
-// the keyboard, the same "render a screen, block on one read" idiom as the
-// text installer, just rendered as pixels instead of VGA text. A real
-// Next/Back multi-widget wizard is still future work. Root/user passwords
-// use `ling_kernel_gui_read_line_masked` (echoes `*`) -- "not shown on
-// screen," not a claim about storage-at-rest security beyond what
-// `fs/users.rs` already discloses.
+// Fully keyboard-driven, no mouse: the locale picker is arrow-key/Enter
+// (a highlighted row, not a raw digit press), and root/user passwords are
+// typed twice and checked (`ling_kernel_gui_read_password_confirmed`,
+// retrying on a mismatch) rather than trusted on one entry. Still no
+// mouse-driven widgets (buttons, click-into text fields) -- everything
+// here is full-screen, one step at a time, the same "render a screen,
+// block on one read" idiom as the text installer, just rendered as pixels
+// instead of VGA text. A real Next/Back multi-widget wizard is still
+// future work.
 use "../../apps/gui-common/main"
 use "../../apps/installer/main"
 
-fn draw_status(text) {
-    ling_kernel_fb_back_clear(2236962)
-    ling_kernel_fb_draw_str(20, 20, "LingOS installer (GUI)", 16777215, 2236962)
-    ling_kernel_fb_draw_str(20, 60, text, 16777215, 2236962)
+fn draw_status(title, step, text) {
+    draw_screen_frame(title, step, 7)
+    ling_kernel_fb_draw_str(ling_kernel_ui_x(20), ling_kernel_ui_y(96), text, color_text(), color_bg())
     ling_kernel_fb_present()
 }
 
-fn draw_prompt_and_read(label) {
-    ling_kernel_fb_back_clear(2236962)
-    ling_kernel_fb_draw_str(20, 20, "LingOS installer (GUI)", 16777215, 2236962)
-    ling_kernel_fb_draw_str(20, 60, label, 16777215, 2236962)
+fn draw_prompt_and_read(title, step, label) {
+    draw_screen_frame(title, step, 7)
+    ling_kernel_fb_draw_str(ling_kernel_ui_x(20), ling_kernel_ui_y(96), label, color_text(), color_bg())
     ling_kernel_fb_present()
-    return ling_kernel_gui_read_line(20, 90, 16777215, 2236962)
+    return ling_kernel_gui_read_line(ling_kernel_ui_x(20), ling_kernel_ui_y(126), color_text(), color_bg())
 }
 
-fn draw_prompt_and_read_masked(label) {
-    ling_kernel_fb_back_clear(2236962)
-    ling_kernel_fb_draw_str(20, 20, "LingOS installer (GUI)", 16777215, 2236962)
-    ling_kernel_fb_draw_str(20, 60, label, 16777215, 2236962)
+// Prompts for a password, typed twice, retrying (drawn by the intrinsic
+// itself -- see its doc) until the two entries match.
+fn draw_prompt_and_read_password(title, step, label) {
+    draw_screen_frame(title, step, 7)
+    ling_kernel_fb_draw_str(ling_kernel_ui_x(20), ling_kernel_ui_y(96), label, color_text(), color_bg())
+    ling_kernel_fb_draw_str(ling_kernel_ui_x(20), ling_kernel_ui_y(122), "Password:", color_dim(), color_bg())
+    ling_kernel_fb_draw_str(ling_kernel_ui_x(20), ling_kernel_ui_y(172), "Confirm password:", color_dim(), color_bg())
     ling_kernel_fb_present()
-    return ling_kernel_gui_read_line_masked(20, 90, 16777215, 2236962)
+    return ling_kernel_gui_read_password_confirmed(
+        ling_kernel_ui_x(20), ling_kernel_ui_y(142), ling_kernel_ui_y(192), ling_kernel_ui_y(222),
+        color_text(), color_bg(), color_error()
+    )
 }
 
 bind start = do {
@@ -68,16 +76,16 @@ bind start = do {
         bind fb_h = ling_kernel_fb_height()
         ling_kernel_mouse_set_bounds(fb_w, fb_h)
 
-        run_locale_picker("Step 1/7 -- Choose your system language:")
+        run_locale_picker("Step 1/7 -- Choose your system language", 1, 7)
         bind lang_idx = ling_kernel_locale_selected()
 
-        run_locale_picker("Step 2/7 -- Choose your locale and timezone:")
+        run_locale_picker("Step 2/7 -- Choose your locale and timezone", 2, 7)
         bind locale_idx = ling_kernel_locale_selected()
 
-        draw_status("Mounting disk...")
+        draw_status("Step 2/7 -- Locale and timezone", 2, "Mounting disk...")
         bind fs_ok = installer_mount()
         if fs_ok == 0 {
-            draw_status("Disk mount FAILED -- cannot install. Reboot and try again.")
+            draw_status("Setup", 2, "Disk mount FAILED -- cannot install. Reboot and try again.")
             while 1 == 1 {
                 ling_kernel_fb_present()
             }
@@ -85,23 +93,23 @@ bind start = do {
         installer_save_locale(locale_idx)
         ling_kernel_fs_write("/language", ling_kernel_locale_id(lang_idx))
 
-        bind hn = draw_prompt_and_read("Step 3/7 -- Hostname for this system:")
+        bind hn = draw_prompt_and_read("Step 3/7 -- Hostname", 3, "Hostname for this system:")
         installer_save_hostname(hn)
 
-        draw_status("Step 4/7 -- Setting up network...")
+        draw_status("Step 4/7 -- Network", 4, "Setting up network...")
         bind net_ok = installer_net_attempt()
         if net_ok == 1 {
-            draw_status("Network: adapter found, link up. (Internet reachability is a known open issue -- see the project backlog. Continuing.)")
+            draw_status("Step 4/7 -- Network", 4, "Adapter found, link up. (Internet reachability is a known open issue -- continuing.)")
         } else {
-            draw_status("Network: no adapter found -- continuing offline.")
+            draw_status("Step 4/7 -- Network", 4, "No adapter found -- continuing offline.")
         }
 
-        bind root_pw = draw_prompt_and_read_masked("Step 5/7 -- Set a password for the root account:")
+        bind root_pw = draw_prompt_and_read_password("Step 5/7 -- Root account", 5, "Set a password for the root account:")
         installer_create_root(root_pw)
 
-        bind user_name = draw_prompt_and_read("Step 6/7 -- Create a user account (username, blank to skip):")
+        bind user_name = draw_prompt_and_read("Step 6/7 -- User account", 6, "Create a user account (username, blank to skip):")
         if len(user_name) != 0 {
-            bind user_pw = draw_prompt_and_read_masked("Step 6/7 -- Password for this account:")
+            bind user_pw = draw_prompt_and_read_password("Step 6/7 -- User account", 6, "Password for this account:")
             installer_create_user(user_name, user_pw)
         }
 
@@ -113,23 +121,23 @@ bind start = do {
         // without a NIC, per "without network we should just install the
         // base system."
         if net_ok == 1 {
-            bind pick = draw_prompt_and_read("Step 7/7 -- Package to install now from catalog/ (blank to skip):")
+            bind pick = draw_prompt_and_read("Step 7/7 -- Packages", 7, "Package to install now from catalog/ (blank to skip):")
             bind pick_ok = installer_install_package(pick)
             if pick_ok == 1 {
-                draw_status("Package installed.")
+                draw_status("Step 7/7 -- Packages", 7, "Package installed.")
             } else if pick_ok == 0 {
-                draw_status("Package install failed (not found in catalog/).")
+                draw_status("Step 7/7 -- Packages", 7, "Package install failed (not found in catalog/).")
             }
         } else {
-            draw_status("Step 7/7 -- No network adapter: installing the base system only.")
+            draw_status("Step 7/7 -- Packages", 7, "No network adapter: installing the base system only.")
         }
 
-        draw_status("Installing bootloader...")
+        draw_status("Finishing up", 7, "Installing bootloader...")
         bind boot_ok = installer_write_bootloader()
         if boot_ok == 0 {
-            draw_status("No boot payload found -- this disk will NOT boot standalone.")
+            draw_status("Finishing up", 7, "No boot payload found -- this disk will NOT boot standalone.")
         } else {
-            draw_status("Done. Remove the installation media and reboot.")
+            draw_status("Finishing up", 7, "Done. Remove the installation media and reboot.")
         }
         while 1 == 1 {
             ling_kernel_fb_present()
