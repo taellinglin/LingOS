@@ -52,6 +52,9 @@ fn color_dot_dim() {
 // matters here (an earlier arithmetic-blended version of a comparison
 // result rendered every row identically blank; only real if/else is
 // proven reliable for picking a color).
+// 9 steps now: a real Disk (select + explicit erase) step sits between
+// Locale and Root -- installing over whatever disk happened to be there
+// without saying so was the old behavior's real gap.
 fn step_color(idx) {
     if idx == 0 {
         return 14704730 // 0xE0605A red -- Keyboard
@@ -60,12 +63,14 @@ fn step_color(idx) {
     } else if idx == 2 {
         return 13161034 // 0xC8D24A yellow-green -- Locale
     } else if idx == 3 {
-        return 4907200 // 0x4AE0C0 teal -- Root
+        return 5164864 // 0x4ECF40 green -- Disk
     } else if idx == 4 {
-        return 4886496 // 0x4A8FE0 blue -- User
+        return 4907200 // 0x4AE0C0 teal -- Root
     } else if idx == 5 {
-        return 9063136 // 0x8A4AE0 indigo -- Network
+        return 4886496 // 0x4A8FE0 blue -- User
     } else if idx == 6 {
+        return 9063136 // 0x8A4AE0 indigo -- Network
+    } else if idx == 7 {
         return 12602080 // 0xC04AE0 purple -- Packages
     } else {
         return 14699162 // 0xE04A9A pink -- Finish
@@ -80,12 +85,14 @@ fn step_label(idx) {
     } else if idx == 2 {
         return "Locale"
     } else if idx == 3 {
-        return "Root"
+        return "Disk"
     } else if idx == 4 {
-        return "User"
+        return "Root"
     } else if idx == 5 {
-        return "Network"
+        return "User"
     } else if idx == 6 {
+        return "Network"
+    } else if idx == 7 {
         return "Packages"
     } else {
         return "Finish"
@@ -98,7 +105,7 @@ fn step_label(idx) {
 // safe -- only the *comparison result* (`idx <= current`) is restricted to
 // real if/else, same rule as `draw_locale_row`.
 fn draw_stepper_dot(idx, current) {
-    bind slot_x = 20 + idx * 115
+    bind slot_x = 20 + idx * 102
     // Real circles now (`fb_back_fill_circle`, added alongside the rounded-
     // rect primitive) -- the "dots drawn as squares" disclosure in this
     // file's module doc is finally obsolete. Center = old square's center.
@@ -125,6 +132,7 @@ fn draw_stepper(current) {
     draw_stepper_dot(5, current)
     draw_stepper_dot(6, current)
     draw_stepper_dot(7, current)
+    draw_stepper_dot(8, current)
 }
 
 // Draws the header (title + current step name in its own color), the

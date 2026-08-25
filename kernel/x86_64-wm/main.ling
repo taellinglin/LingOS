@@ -21,11 +21,45 @@
 // documented reason gui-common unrolls its rows: no counter-carrying
 // loop construct exists on this side of the FFI.
 //
-// Login/greeter note, honestly: this Live target still auto-creates and
-// logs in the "live" account (a real account, really logged in). The
-// password greeter belongs to the installed-disk boot path (a separate
-// piece of the desktop-boot work) -- not faked here in the meantime.
+// Boot flows, both real: a GRUB/Live boot auto-creates and logs in the
+// "live" account (a real account, really logged in) after the locale
+// picker; an installed-disk boot (`ling_kernel_boot_is_disk`, the
+// stage1/stage2 path with no Multiboot2 info) instead shows the login
+// greeter below -- username/password against the real accounts created
+// during installation, retrying until `ling_kernel_user_login` actually
+// succeeds. No fake session either way.
 use "../../apps/gui-common/main"
+
+// One greeter attempt: draw the card (theme-driven, same rounded look as
+// every other surface), read username + masked password at fixed field
+// positions, try the real login. Returns the login result so the caller's
+// retry loop can keep asking until it's 1.
+fn greeter_attempt(fb_w, fb_h) {
+    ling_kernel_wm_draw_wallpaper()
+    bind cw = ling_kernel_ui_len(420)
+    bind ch = ling_kernel_ui_len(240)
+    bind cx = (fb_w - cw) / 2
+    bind cy = (fb_h - ch) / 2 - ling_kernel_ui_len(30)
+    ling_kernel_fb_back_blend_rrect(cx + 5, cy + 7, cw, ch, 12, ling_kernel_theme_color(11), 80)
+    ling_kernel_fb_back_fill_rrect(cx, cy, cw, ch, 12, ling_kernel_theme_color(2))
+    ling_kernel_fb_back_fill_rrect(cx + 1, cy + 1, cw - 2, ch - 2, 11, ling_kernel_theme_color(1))
+    ling_kernel_fb_draw_str(cx + 24, cy + 20, "LingOS", ling_kernel_theme_color(10), ling_kernel_theme_color(1))
+    ling_kernel_fb_draw_str(cx + 24, cy + 44, "log in to your installed system", ling_kernel_theme_color(4), ling_kernel_theme_color(1))
+    ling_kernel_fb_draw_str(cx + 24, cy + 84, "user:", ling_kernel_theme_color(3), ling_kernel_theme_color(1))
+    ling_kernel_fb_draw_str(cx + 24, cy + 124, "password:", ling_kernel_theme_color(3), ling_kernel_theme_color(1))
+    ling_kernel_fb_present()
+    bind username = ling_kernel_gui_read_line(cx + 110, cy + 84, ling_kernel_theme_color(3), ling_kernel_theme_color(1))
+    bind password = ling_kernel_gui_read_line_masked(cx + 110, cy + 124, ling_kernel_theme_color(3), ling_kernel_theme_color(1))
+    bind ok = ling_kernel_user_login(username, password)
+    if ok == 0 {
+        ling_kernel_fb_draw_str(cx + 24, cy + 164, "login failed -- try again", ling_kernel_theme_color(5), ling_kernel_theme_color(1))
+        ling_kernel_fb_present()
+        ling_kernel_audio_jingle(4)
+    } else {
+        ling_kernel_audio_jingle(5)
+    }
+    return ok
+}
 
 // One window's chrome + content, if slot `s` is populated. Slot order is
 // back-to-front, so calling this 0..5 in order is painter's-algorithm
@@ -110,13 +144,36 @@ bind start = do {
         // comment for the real regression this guards against.
         ling_kernel_vga_write_str("wm: entering interactive loop\n")
 
-        run_locale_picker("Welcome to LingOS -- choose a language / locale", 1)
-        bind locale_idx = ling_kernel_locale_selected()
+        // Audio first so both flows get their jingles -- returns 0 with no
+        // AC'97 device, and every audio call no-ops in that case.
+        bind audio_ok = ling_kernel_audio_init()
 
-        ling_kernel_fs_mount()
-        ling_kernel_user_create("live", "live", "Live", "User", "", "", "users")
-        ling_kernel_user_login("live", "live")
+        bind disk_boot = ling_kernel_boot_is_disk()
+        if disk_boot == 1 {
+            // Installed system: mount the real filesystem (accounts live
+            // in it), then hold at the greeter until a real login.
+            // Locale defaults to entry 0 -- persisting the install-time
+            // locale choice into lingfs is still on the roadmap, so
+            // defaulting is the honest option, not a fake restore.
+            ling_kernel_locale_reset()
+            ling_kernel_locale_confirm_cursor()
+            ling_kernel_fs_mount()
+            while greeter_attempt(fb_w, fb_h) == 0 {
+                ling_kernel_vga_write_str("greeter: login failed, retrying\n")
+            }
+            ling_kernel_vga_write_str("greeter: logged in\n")
+        } else {
+            run_locale_picker("Welcome to LingOS -- choose a language / locale", 1)
+            ling_kernel_fs_mount()
+            ling_kernel_user_create("live", "live", "Live", "User", "", "", "users")
+            ling_kernel_user_login("live", "live")
+        }
+        bind locale_idx = ling_kernel_locale_selected()
         bind net_ok = ling_kernel_net_init()
+
+        if audio_ok == 1 {
+            ling_kernel_audio_jingle(0)
+        }
 
         // Open the About window so the desktop greets with something
         // draggable rather than an empty wallpaper.
@@ -132,6 +189,7 @@ bind start = do {
             // spring advance happen kernel-side in one call; keys go to
             // whichever window is focused.
             ling_kernel_wm_step(mx, my, buttons)
+            ling_kernel_audio_pump()
             bind k = ling_kernel_kbd_poll_char()
             if k > 0 {
                 ling_kernel_wm_key(k)
@@ -164,6 +222,11 @@ bind start = do {
             draw_dock_slot(0)
             draw_dock_slot(1)
             draw_dock_slot(2)
+
+            // Tray: volume + ethernet widgets (and the volume popover with
+            // master + per-app rows when open) -- drawn after windows so
+            // the popover overlays them, matching its input priority.
+            ling_kernel_wm_draw_tray(net_ok)
 
             // Network status stays real and visible, tucked bottom-left.
             if net_ok == 1 {

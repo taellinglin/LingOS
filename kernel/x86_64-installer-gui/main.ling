@@ -92,10 +92,40 @@ bind start = do {
         run_locale_picker("Choose your locale and timezone", 2)
         bind locale_idx = ling_kernel_locale_selected()
 
-        draw_status("Locale and timezone", 2, "Mounting disk...")
+        // Disk step: name the real target device and require the word
+        // ERASE typed in full before touching it -- an install that wipes
+        // a disk should never be one accidental Enter away. Anything else
+        // typed parks the installer (reboot to start over). The erase
+        // itself is the honest quick-erase (boot sectors + filesystem
+        // headers zeroed; see ling_kernel_disk_erase_quick's doc).
+        draw_screen_frame("Choose the installation disk", 3)
+        ling_kernel_fb_draw_str(ling_kernel_ui_x(36), ling_kernel_ui_y(132), "Detected disk (the only one this kernel drives today):", color_text(), color_panel())
+        ling_kernel_fb_back_fill_rrect(ling_kernel_ui_x(36), ling_kernel_ui_y(158), ling_kernel_ui_len(400), ling_kernel_ui_len(30), 6, step_color(3))
+        ling_kernel_fb_back_fill_rrect(ling_kernel_ui_x(38), ling_kernel_ui_y(160), ling_kernel_ui_len(396), ling_kernel_ui_len(26), 5, color_panel())
+        ling_kernel_fb_draw_str(ling_kernel_ui_x(52), ling_kernel_ui_y(168), ling_kernel_disk_name(), color_text(), color_panel())
+        ling_kernel_fb_draw_str(ling_kernel_ui_x(36), ling_kernel_ui_y(210), "Installing ERASES this disk: bootloader, filesystem, everything.", color_error(), color_panel())
+        ling_kernel_fb_present()
+        bind confirm = draw_prompt_and_read("Confirm erase", 3, "Type ERASE (all caps) to wipe this disk and install:")
+        if confirm == "ERASE" {
+            draw_status("Erasing disk", 3, "Erasing boot sectors and filesystem headers...")
+            bind erase_ok = ling_kernel_disk_erase_quick()
+            if erase_ok == 0 {
+                draw_status("Erasing disk", 3, "Erase FAILED (disk write error). Reboot and try again.")
+                while 1 == 1 {
+                    ling_kernel_fb_present()
+                }
+            }
+        } else {
+            draw_status("Confirm erase", 3, "Not confirmed -- nothing was written. Reboot to start over.")
+            while 1 == 1 {
+                ling_kernel_fb_present()
+            }
+        }
+
+        draw_status("Choose the installation disk", 3, "Mounting disk...")
         bind fs_ok = installer_mount()
         if fs_ok == 0 {
-            draw_status("Setup", 2, "Disk mount FAILED -- cannot install. Reboot and try again.")
+            draw_status("Setup", 3, "Disk mount FAILED -- cannot install. Reboot and try again.")
             while 1 == 1 {
                 ling_kernel_fb_present()
             }
@@ -103,24 +133,36 @@ bind start = do {
         installer_save_locale(locale_idx)
         ling_kernel_fs_write("/language", ling_kernel_locale_id(lang_idx))
 
-        bind hn = draw_prompt_and_read("Locale and timezone", 2, "Hostname for this system:")
+        bind hn = draw_prompt_and_read("Choose the installation disk", 3, "Hostname for this system:")
         installer_save_hostname(hn)
 
-        bind root_pw = draw_prompt_and_read_password("Root account", 3, "Set a password for the root account:")
+        bind root_pw = draw_prompt_and_read_password("Root account", 4, "Set a password for the root account:")
         installer_create_root(root_pw)
 
-        bind user_name = draw_prompt_and_read("User account", 4, "Create a user account (username, blank to skip):")
+        bind user_name = draw_prompt_and_read("User account", 5, "Create a user account (username, blank to skip):")
         if len(user_name) != 0 {
-            bind user_pw = draw_prompt_and_read_password("User account", 4, "Password for this account:")
+            bind user_pw = draw_prompt_and_read_password("User account", 5, "Password for this account:")
             installer_create_user(user_name, user_pw)
         }
 
-        draw_status("Network", 5, "Setting up network...")
+        draw_status("Network", 6, "Setting up network...")
         bind net_ok = installer_net_attempt()
         if net_ok == 1 {
-            draw_status("Network", 5, "Adapter found, link up. (Internet reachability is a known open issue -- continuing.)")
+            draw_status("Network", 6, "Adapter found, link up -- TCP/HTTP stack available (lingfu sync).")
+
+            // SSH opt-in, stored honestly: LingOS has no in-kernel SSH
+            // service yet (it needs the TCP stack that just landed PLUS a
+            // no_std crypto port -- packages/README.md step 5), so this
+            // writes a real config flag the future service will read at
+            // boot, described as exactly that -- not a toggle pretending
+            // a daemon exists today.
+            bind ssh_ans = draw_prompt_and_read("Network", 6, "Request the SSH service once it ships? (yes/no):")
+            if ssh_ans == "yes" {
+                ling_kernel_fs_write("/ssh_requested", "yes")
+                draw_status("Network", 6, "Noted: SSH requested (stored in /ssh_requested; service is roadmap).")
+            }
         } else {
-            draw_status("Network", 5, "No adapter found -- continuing offline.")
+            draw_status("Network", 6, "No adapter found -- continuing offline.")
         }
 
         // No real package catalog ships by default (no network registry
@@ -131,23 +173,23 @@ bind start = do {
         // without a NIC, per "without network we should just install the
         // base system."
         if net_ok == 1 {
-            bind pick = draw_prompt_and_read("Packages", 6, "Package to install now from catalog/ (blank to skip):")
+            bind pick = draw_prompt_and_read("Packages", 7, "Package to install now from catalog/ (blank to skip):")
             bind pick_ok = installer_install_package(pick)
             if pick_ok == 1 {
-                draw_status("Packages", 6, "Package installed.")
+                draw_status("Packages", 7, "Package installed.")
             } else if pick_ok == 0 {
-                draw_status("Packages", 6, "Package install failed (not found in catalog/).")
+                draw_status("Packages", 7, "Package install failed (not found in catalog/).")
             }
         } else {
-            draw_status("Packages", 6, "No network adapter: installing the base system only.")
+            draw_status("Packages", 7, "No network adapter: installing the base system only.")
         }
 
-        draw_status("Finishing up", 7, "Installing bootloader...")
+        draw_status("Finishing up", 8, "Installing bootloader...")
         bind boot_ok = installer_write_bootloader()
         if boot_ok == 0 {
-            draw_status("Finishing up", 7, "No boot payload found -- this disk will NOT boot standalone.")
+            draw_status("Finishing up", 8, "No boot payload found -- this disk will NOT boot standalone.")
         } else {
-            draw_status("Finishing up", 7, "Done. Remove the installation media and reboot.")
+            draw_status("Finishing up", 8, "Done. Remove the installation media and reboot.")
         }
         while 1 == 1 {
             ling_kernel_fb_present()

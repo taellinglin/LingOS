@@ -110,6 +110,31 @@ bind start = do {
     ling_kernel_vga_write_str("\n")
     ling_kernel_vga_set_color(7, 0)
 
+    // Disk step, same contract as the GUI installer's: name the real
+    // target, demand the word ERASE typed in full, quick-erase (boot
+    // sectors + filesystem headers) before mounting/formatting. Anything
+    // else typed drops to the rescue shell with the disk untouched.
+    ling_kernel_vga_write_str("\nInstallation disk: ")
+    ling_kernel_print_lstr(ling_kernel_disk_name())
+    ling_kernel_vga_set_color(12, 0)
+    ling_kernel_vga_write_str("\nInstalling ERASES this disk: bootloader, filesystem, everything.\n")
+    ling_kernel_vga_set_color(7, 0)
+    ling_kernel_vga_write_str("Type ERASE (all caps) to wipe this disk and install: ")
+    bind confirm = ling_kernel_read_line()
+    if confirm == "ERASE" {
+        bind erase_ok = ling_kernel_disk_erase_quick()
+        if erase_ok == 0 {
+            ling_kernel_vga_set_color(4, 0)
+            ling_kernel_vga_write_str("erase FAILED (disk write error) -- dropping to rescue shell\n")
+            ling_kernel_vga_set_color(7, 0)
+            run_shell()
+        }
+        ling_kernel_vga_write_str("disk erased (boot sectors + filesystem headers)\n")
+    } else {
+        ling_kernel_vga_write_str("not confirmed -- nothing written; dropping to rescue shell\n")
+        run_shell()
+    }
+
     bind fs_ok = installer_mount()
     if fs_ok == 1 {
         ling_kernel_vga_set_color(10, 0)

@@ -27,7 +27,7 @@ fn print_help() {
     ling_kernel_vga_write_str("  useradd*                groupmod <user> <grp>*  pkginstall <blob>*\n")
     ling_kernel_vga_write_str("  lingfu list|search|install*                    sudo <cmd...>\n")
     ling_kernel_vga_write_str("  selftest proctest ps    theme dark|light         nettest\n")
-    ling_kernel_vga_write_str("  ling-life\n")
+    ling_kernel_vga_write_str("  ling-life               play (tape player: space/s/q)\n")
     ling_kernel_vga_write_str("  (* needs the wheel group -- run directly if you're in it, or via sudo)\n")
 }
 
@@ -202,38 +202,53 @@ fn run_command(cmd, arg) {
     } else if cmd == "lingfu" {
         bind lf_cmd = ling_kernel_str_cmd(arg)
         bind lf_arg = ling_kernel_str_arg(arg)
-        if lf_cmd == "list" {
+        // The network registry client is REAL now (drivers::{netstack,
+        // lingfu}: genuine TCP/HTTP over the fixed e1000): `sync` pulls
+        // /catalog.txt from the repo (lingfs /repo, default 10.0.2.2:8000
+        // -- QEMU's host alias), `search` greps the synced catalog,
+        // `install <name>` downloads the .lpkg and unpacks it. `install`
+        // falls back to the old local-blob path when the name matches
+        // nothing in the catalog, so media-shipped packages still work.
+        if lf_cmd == "sync" {
+            bind n = ling_kernel_lingfu_sync()
+            if n > 0 {
+                ling_kernel_lingfu_query("")
+            }
+        } else if lf_cmd == "list" {
+            ling_kernel_vga_write_str("installed:\n")
             ling_kernel_fs_ls("packages")
+            ling_kernel_vga_write_str("catalog (lingfu sync to refresh):\n")
+            ling_kernel_lingfu_query("")
         } else if lf_cmd == "search" {
-            // No registry client exists yet -- that's blocked on a real NIC
-            // driver/TCP+TLS stack (see packages/README.md's roadmap), not
-            // on anything this shell could paper over. `catalog/` is a
-            // local lingfs directory of .lpkg blobs already present on this
-            // system (e.g. shipped on the install media) -- the honest
-            // "search" this command can actually do today.
-            ling_kernel_vga_write_str("no network registry yet -- searching the local catalog only\n")
-            ling_kernel_fs_ls("catalog")
+            ling_kernel_lingfu_query(lf_arg)
         } else if lf_cmd == "install" {
             if len(lf_arg) == 0 {
-                ling_kernel_vga_write_str("usage: lingfu install <blob>\n")
+                ling_kernel_vga_write_str("usage: lingfu install <name-or-blob>\n")
             } else if is_wheel() == 0 {
                 ling_kernel_vga_set_color(12, 0)
                 ling_kernel_vga_write_str("lingfu install: permission denied (needs the wheel group -- try 'sudo lingfu install ...')\n")
                 ling_kernel_vga_set_color(7, 0)
             } else {
-                bind lf_ok = ling_kernel_pkg_install(lf_arg)
-                if lf_ok == 1 {
+                bind net_ok = ling_kernel_lingfu_fetch_install(lf_arg)
+                if net_ok == 1 {
                     ling_kernel_vga_set_color(10, 0)
-                    ling_kernel_vga_write_str("installed (see: lingfu list)\n")
+                    ling_kernel_vga_write_str("installed from the network repo (see: lingfu list)\n")
                     ling_kernel_vga_set_color(7, 0)
                 } else {
-                    ling_kernel_vga_set_color(12, 0)
-                    ling_kernel_vga_write_str("lingfu install failed (no such blob in lingfs or in catalog/)\n")
-                    ling_kernel_vga_set_color(7, 0)
+                    bind lf_ok = ling_kernel_pkg_install(lf_arg)
+                    if lf_ok == 1 {
+                        ling_kernel_vga_set_color(10, 0)
+                        ling_kernel_vga_write_str("installed from a local blob (see: lingfu list)\n")
+                        ling_kernel_vga_set_color(7, 0)
+                    } else {
+                        ling_kernel_vga_set_color(12, 0)
+                        ling_kernel_vga_write_str("lingfu install failed (not in the catalog, and no such local blob)\n")
+                        ling_kernel_vga_set_color(7, 0)
+                    }
                 }
             }
         } else {
-            ling_kernel_vga_write_str("usage: lingfu list | search <term> | install <blob>\n")
+            ling_kernel_vga_write_str("usage: lingfu sync | list | search <term> | install <name>\n")
         }
     } else if cmd == "sudo" {
         bind sub_cmd = ling_kernel_str_cmd(arg)
@@ -318,6 +333,39 @@ fn run_command(cmd, arg) {
             ling_kernel_theme_light()
         } else {
             ling_kernel_theme_dark()
+        }
+    } else if cmd == "play" {
+        // Tape player: a real generative pentatonic track through the
+        // AC'97 mixer (same synth + tuning as the desktop's jingles), with
+        // an in-place ASCII transport. Space pauses/resumes, s or q stops.
+        // The transport string itself is built kernel-side
+        // (ling_kernel_player_line) -- variable-length bars need loops
+        // this shell's language can't hold. `\r` redraw, no scroll.
+        bind audio_ok = ling_kernel_audio_init()
+        if audio_ok == 0 {
+            ling_kernel_vga_set_color(12, 0)
+            ling_kernel_vga_write_str("play: no AC'97 audio device found\n")
+            ling_kernel_vga_set_color(7, 0)
+        } else {
+            ling_kernel_vga_write_str("tape: space = play/pause, s or q = stop & eject\n")
+            ling_kernel_player_load(42, 60000)
+            ling_kernel_player_play()
+            while ling_kernel_player_state() > 0 {
+                ling_kernel_audio_pump()
+                ling_kernel_vga_write_str("\r")
+                ling_kernel_print_lstr(ling_kernel_player_line())
+                bind k = ling_kernel_kbd_poll_char()
+                if k == 32 {
+                    ling_kernel_player_pause()
+                } else if k == 115 {
+                    ling_kernel_player_stop()
+                } else if k == 113 {
+                    ling_kernel_player_stop()
+                }
+            }
+            ling_kernel_vga_write_str("\r")
+            ling_kernel_print_lstr(ling_kernel_player_line())
+            ling_kernel_vga_write_str("\ntape: ejected\n")
         }
     } else if cmd == "" {
         ling_kernel_vga_write_str("")
