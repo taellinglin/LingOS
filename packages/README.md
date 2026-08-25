@@ -103,11 +103,19 @@ before those foundations exist would just mean rebuilding it once they do.
    kernel doesn't have yet either. Password hashing itself (via the
    kernel-native crypto module above) is small and separable once there's
    somewhere to store the hash.
-7. **A real public repository** (`pacman`/`apt`-style network fetch) — not
-   started. This needs an actual server someone hosts and maintains
-   security on indefinitely; that's a hosting decision, not a code change,
-   and hasn't been made yet. Until then, "installing a package" means
-   installing a file you already have.
+7. **A real public repository** (`pacman`/`apt`-style network fetch) —
+   **client side done (2026-08-26)**: the e1000 driver's packet-delivery
+   mystery was solved (missing PCI bus-mastering + a TCG-miscalibrated
+   timeout — see the driver's module doc), and `drivers::{netstack,
+   lingfu}` now implement a real IPv4/TCP/HTTP client with catalog
+   sync/search/download/install (`lingfu sync|search|install`). The repo
+   URL is one lingfs file (`/repo`, "ip:port"); the default is QEMU
+   SLIRP's host alias, so any HTTP server beside the catalog IS a repo.
+   Still a hosting decision, unchanged: who runs the *public* one. Still
+   missing, disclosed: TLS (plain HTTP only until a no_std TLS stack
+   exists) and signature verification (step 5 above) — the catalog says
+   "unsigned" out loud. Package size is capped by single-block lingfs
+   files (~4 KiB) until multi-block files land.
 8. **Full-disk encryption by default** — deliberately last. Encrypting a
    filesystem that doesn't fully exist yet, or claiming a distro is
    "secure by default" before there's a permission model to secure,

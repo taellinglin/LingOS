@@ -8,19 +8,34 @@ This section describes what's actually built and verified — see [`packages/REA
 for the honest roadmap of what's planned but not there yet (real process isolation, package
 signing, and more all belong there, not here, until they're real).
 
-- **Real interrupts + cooperative task scheduling (`proc/`, `arch/{x86_64,aarch64}/`)**:
+- **Real interrupts, two schedulers, and ring-3 (`proc/`, `arch/{x86_64,aarch64}/`)**:
   - Genuine IDT/PIC (x86_64) and VBAR_EL1/intc (aarch64) interrupt handling, IRQ-driven keyboard
-    and mouse input, a 100Hz timer heartbeat.
-  - A cooperative (**not** preemptive) round-robin scheduler (`proc/sched.rs`) — every task shares
-    one flat, identity-mapped address space and runs in ring 0 (no TSS/ring-3 anywhere in this
-    kernel); a task must voluntarily `yield` for anything else to run. `apps/*` are separate
-    `.ling` source directories today, but there's no ELF loader or process-isolation boundary yet —
-    they aren't independently runnable binaries, they're either compiled directly into a kernel
-    target or (once Track A/B of the current work lands) `use`-shared source modules.
+    and mouse input (plus a per-frame 8042 poll-drain — QEMU's controller holds data without
+    re-edging IRQ12; see `drivers/mouse.rs`), a 100Hz timer heartbeat.
+  - A cooperative round-robin scheduler (`proc/sched.rs`) for in-kernel tasks, **and** a real
+    preemptive ring-3 layer (`proc/uproc.rs`): syscall/sysret, per-process page tables, a static
+    ELF loader, 16 frozen syscall numbers (several still ENOSYS — see `abi/syscalls.rs`). Only
+    diagnostics (`proctest`, `ps`) drive ring-3 so far; `apps/*` remain `use`-shared source
+    compiled into kernel targets, not separate processes yet.
 
-- **Real memory management (`mm/`)**: a buddy physical-frame allocator and a slab heap allocator
-  with working `free()` — replaced the old bump-arena-that-never-frees. Paging beyond the one-time
-  boot-time identity map (NX/W^X, per-process address spaces) is deliberately not built yet.
+- **Real memory management (`mm/`, `arch/*/paging.rs`)**: a buddy physical-frame allocator, a slab
+  heap with working `free()`, and real 4-level paging with NX/W^X on the kernel image plus
+  per-process address spaces for ring-3 — the old "identity map only" note is history.
+
+- **Desktop (`kernel/x86_64-wm` + `drivers/{wm,theme,mixer,ac97,...}.rs`)**: a multi-window
+  manager (z-order, focus, titlebar drag with liquid-spring physics, close/minimize), dock,
+  RTC clock, Settings/Files/About apps, switchable UI themes + wallpapers (incl. ROYGBIV), a
+  Windows-style per-app audio mixer over an AC'97 driver with pentatonic sound themes, and a
+  MATE-style tray (volume popover, ethernet status). Installed disks boot to a login greeter
+  via a VBE-mode-setting, unreal-mode stage2 (`bootloader/stage2.asm`). Interaction-verified in
+  headless QEMU — see `live/tests/`.
+
+- **Networking (`drivers/{net_e1000,netstack,lingfu}.rs`)**: the e1000 driver's long-standing
+  silent-wire mystery is fixed (PCI bus mastering + a TCG-fast timeout — module doc has the
+  story); on top sit a minimal real IPv4/TCP/HTTP client and `lingfu sync|search|install`,
+  which downloads and installs `.lpkg`s from any HTTP repo (default: QEMU's host alias;
+  configurable via lingfs `/repo`). Unsigned + plain HTTP until roadmap steps land — see
+  `packages/README.md`.
 
 - **Content-Addressed Root Filesystem (`lingfs/`)**:
   - Git-style immutable object store identified by BLAKE3 cryptographic hashes.
