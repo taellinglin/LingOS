@@ -28,6 +28,7 @@ fn print_help() {
     ling_kernel_vga_write_str("  lingfu list|search|install*                    sudo <cmd...>\n")
     ling_kernel_vga_write_str("  selftest proctest ps    theme dark|light         nettest\n")
     ling_kernel_vga_write_str("  ling-life               play (tape player: space/s/q)\n")
+    ling_kernel_vga_write_str("  curl <url> [file]       bring <url> (browser in ling; --out saves)\n")
     ling_kernel_vga_write_str("  (* needs the wheel group -- run directly if you're in it, or via sudo)\n")
 }
 
@@ -366,6 +367,77 @@ fn run_command(cmd, arg) {
             ling_kernel_vga_write_str("\r")
             ling_kernel_print_lstr(ling_kernel_player_line())
             ling_kernel_vga_write_str("\ntape: ejected\n")
+        }
+    } else if cmd == "curl" {
+        // Fetch a URL over the real TCP/HTTP stack. `curl <url>` prints the
+        // body; `curl <url> <file>` saves it to a lingfs file (multi-block,
+        // so big downloads work now). http:// only -- https is refused
+        // out loud (no TLS stack yet), never silently downgraded.
+        bind url = ling_kernel_str_cmd(arg)
+        bind dest = ling_kernel_str_arg(arg)
+        if len(url) == 0 {
+            ling_kernel_vga_write_str("usage: curl <url> [outfile]\n")
+        } else if len(dest) == 0 {
+            bind r = ling_kernel_http_print(url)
+            if r == 2 {
+                ling_kernel_vga_write_str("curl: https needs a TLS stack LingOS doesn't have yet -- try http://\n")
+            } else if r == 3 {
+                ling_kernel_vga_write_str("curl: could not resolve host\n")
+            } else if r == 0 {
+                ling_kernel_vga_write_str("curl: fetch failed\n")
+            }
+        } else {
+            bind r = ling_kernel_http_download(url, dest)
+            if r == 1 {
+                ling_kernel_vga_write_str("curl: saved to ")
+                ling_kernel_print_lstr(dest)
+                ling_kernel_vga_write_str("\n")
+            } else if r == 2 {
+                ling_kernel_vga_write_str("curl: https not supported yet (http:// only)\n")
+            } else if r == 3 {
+                ling_kernel_vga_write_str("curl: could not resolve host\n")
+            } else if r == 4 {
+                ling_kernel_vga_write_str("curl: fetched but couldn't write the file (too big, or fs error)\n")
+            } else {
+                ling_kernel_vga_write_str("curl: fetch failed\n")
+            }
+        }
+    } else if cmd == "bring" {
+        // bring: browser in ling. `bring <url>` fetches and renders the
+        // page lynx-style to the console (headings, links numbered);
+        // `bring --out <url> <file>` is curl-with-a-nicer-name; the desktop
+        // has the interactive Browser window (dock W). One engine
+        // (bring-browser) behind all three.
+        bind sub = ling_kernel_str_cmd(arg)
+        if len(sub) == 0 {
+            ling_kernel_vga_write_str("usage: bring <url>   |   bring --out <url> <file>\n")
+        } else if sub == "--out" {
+            bind rest = ling_kernel_str_arg(arg)
+            bind url = ling_kernel_str_cmd(rest)
+            bind dest = ling_kernel_str_arg(rest)
+            if len(url) == 0 {
+                ling_kernel_vga_write_str("usage: bring --out <url> <file>\n")
+            } else {
+                bind r = ling_kernel_http_download(url, dest)
+                if r == 1 {
+                    ling_kernel_vga_write_str("bring: saved ")
+                    ling_kernel_print_lstr(url)
+                    ling_kernel_vga_write_str(" -> ")
+                    ling_kernel_print_lstr(dest)
+                    ling_kernel_vga_write_str("\n")
+                } else {
+                    ling_kernel_vga_write_str("bring: download failed (http:// only; check the host)\n")
+                }
+            }
+        } else {
+            bind ok = ling_kernel_browser_go(sub, 76)
+            if ok == 1 {
+                ling_kernel_browser_dump()
+            } else {
+                ling_kernel_vga_write_str("bring: ")
+                ling_kernel_print_lstr(ling_kernel_browser_status())
+                ling_kernel_vga_write_str("\n")
+            }
         }
     } else if cmd == "" {
         ling_kernel_vga_write_str("")

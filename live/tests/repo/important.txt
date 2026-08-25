@@ -1,0 +1,2 @@
+This is important.txt, fetched by bring --browse over real TCP.
+Line two.

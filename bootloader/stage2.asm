@@ -74,24 +74,50 @@ start:
     mov es, bx
     sti
 
-    ; --- VBE: set a linear-framebuffer graphics mode BEFORE loading the
-    ; kernel, and leave a tagged handoff block at LFB_INFO_ADDR for
-    ; framebuffer.rs's disk-boot path (no Multiboot2 info exists here).
-    ; Installed disks boot the graphics desktop now, so a real mode-set
-    ; matters; on any VBE failure the block simply isn't written and the
-    ; kernel runs framebuffer-less (serial/VGA text still work).
-    mov word [vbe_try_mode], 0x0118 ; 1024x768, the widest-supported choice
-    call vbe_try
-    jnc .vbe_done
-    mov word [vbe_try_mode], 0x0115 ; 800x600 fallback
-    call vbe_try
-.vbe_done:
-
-    ; --- Read the on-disk kernel header (1 sector, fixed LBA) ---
+    ; --- Read the on-disk kernel header (1 sector, fixed LBA) FIRST, so
+    ; the display-mode preference byte (offset 16) is available before the
+    ; VBE mode-set below. ---
     mov si, header_dap
     mov ah, 0x42
     int 0x13
     jc disk_error
+
+    ; --- VBE: set a linear-framebuffer graphics mode BEFORE loading the
+    ; kernel, and leave a tagged handoff block at LFB_INFO_ADDR for
+    ; framebuffer.rs's disk-boot path (no Multiboot2 info exists here).
+    ; The preferred-mode list starts at the byte the user persisted
+    ; (header offset 16 -> DISPLAY_MODES table), then falls through the
+    ; rest so a mode the hardware lacks still lands on something. On total
+    ; VBE failure the handoff block isn't written and the kernel runs
+    ; framebuffer-less (serial/VGA text still work).
+    movzx bx, byte [header_buf + 16]
+    cmp bx, DISPLAY_MODE_COUNT
+    jb .pref_ok
+    xor bx, bx
+.pref_ok:
+    ; Try the preferred mode first.
+    mov si, display_modes
+    add si, bx
+    add si, bx                       ; *2 (word entries)
+    mov ax, [si]
+    mov [vbe_try_mode], ax
+    call vbe_try
+    jnc .vbe_done
+    ; Then walk the whole table in order as fallbacks.
+    xor bx, bx
+.vbe_fallback:
+    cmp bx, DISPLAY_MODE_COUNT
+    jae .vbe_done
+    mov si, display_modes
+    add si, bx
+    add si, bx
+    mov ax, [si]
+    mov [vbe_try_mode], ax
+    call vbe_try
+    jnc .vbe_done
+    inc bx
+    jmp .vbe_fallback
+.vbe_done:
 
     cmp dword [header_buf], KERNEL_HEADER_MAGIC
     jne header_error
@@ -246,6 +272,14 @@ align 4
 header_buf: times 512 db 0
 align 4
 vbe_mode_buf: times 256 db 0
+
+; Display-mode table -- index by the persisted preference byte (header
+; offset 16). VBE mode numbers for linear-framebuffer graphics; must stay
+; in sync with drivers/display.rs's list and the Settings Display row.
+;   0 = 1024x768  1 = 800x600  2 = 1280x1024  3 = 640x480  4 = 1280x720
+display_modes:
+    dw 0x0118, 0x0115, 0x011B, 0x0111, 0x0117
+DISPLAY_MODE_COUNT equ 5
 
 align 8
 gdt_start:

@@ -61,51 +61,16 @@ fn greeter_attempt(fb_w, fb_h) {
     return ok
 }
 
-// One window's chrome + content, if slot `s` is populated. Slot order is
-// back-to-front, so calling this 0..5 in order is painter's-algorithm
-// correct: back windows first, focused window last (on top).
+// One window at z slot `s` (back-to-front, painter's-algorithm order):
+// the whole thing -- shadow, the soap-film-bending rounded body, titlebar,
+// traffic lights, content, and the dissolve-on-close animation -- is now
+// drawn kernel-side (`drivers::wm::draw_window`), because a bend is a
+// per-scanline horizontal shear and a dissolve is per-cell fade, neither
+// of which the fixed-rect `.ling` primitives can express. This file just
+// asks for each slot in order.
 fn draw_win_slot(s, count) {
     if s < count {
-        bind x = ling_kernel_wm_slot_x(s)
-        bind y = ling_kernel_wm_slot_y(s)
-        bind w = ling_kernel_wm_slot_w(s)
-        bind h = ling_kernel_wm_slot_h(s)
-        bind tb = ling_kernel_wm_titlebar_h()
-        bind title = ling_kernel_wm_slot_title(s)
-        bind focused = ling_kernel_wm_slot_focused(s)
-
-        // Soft drop shadow first (blended, offset down-right), then a
-        // 1px border in accent (focused) or panel-border (not), then the
-        // panel body inset inside it -- all genuinely rounded now.
-        ling_kernel_fb_back_blend_rrect(x + 6, y + 8, w, h, 12, ling_kernel_theme_color(11), 80)
-        if focused == 1 {
-            ling_kernel_fb_back_fill_rrect(x, y, w, h, 10, ling_kernel_theme_color(10))
-            ling_kernel_fb_back_fill_rrect(x + 1, y + 1, w - 2, h - 2, 9, ling_kernel_theme_color(1))
-            ling_kernel_fb_back_fill_rrect(x + 1, y + 1, w - 2, tb, 9, ling_kernel_theme_color(6))
-            ling_kernel_fb_back_fill_rect(x + 1, y + tb - 8, w - 2, 8, ling_kernel_theme_color(6))
-        } else {
-            ling_kernel_fb_back_fill_rrect(x, y, w, h, 10, ling_kernel_theme_color(2))
-            ling_kernel_fb_back_fill_rrect(x + 1, y + 1, w - 2, h - 2, 9, ling_kernel_theme_color(1))
-            ling_kernel_fb_back_fill_rrect(x + 1, y + 1, w - 2, tb, 9, ling_kernel_theme_color(7))
-            ling_kernel_fb_back_fill_rect(x + 1, y + tb - 8, w - 2, 8, ling_kernel_theme_color(7))
-        }
-
-        // Title, vertically centered in the titlebar. UTF-8 (window titles
-        // are ASCII today, but the locale-aware content isn't always).
-        if focused == 1 {
-            ling_kernel_fb_draw_utf8_str(x + 12, y + 6, title, ling_kernel_theme_color(8), ling_kernel_theme_color(6), 0)
-        } else {
-            ling_kernel_fb_draw_utf8_str(x + 12, y + 6, title, ling_kernel_theme_color(4), ling_kernel_theme_color(7), 0)
-        }
-
-        // Traffic lights, right end of the titlebar: minimize (amber) then
-        // close (red) -- centers match `drivers::wm`'s hit regions
-        // (`hit_minimize`/`hit_close`: two TITLEBAR_H-wide squares).
-        ling_kernel_fb_back_fill_circle(x + w - tb - tb / 2, y + tb / 2, 6, 14718282)
-        ling_kernel_fb_back_fill_circle(x + w - tb / 2, y + tb / 2, 6, 14704730)
-
-        // Interior (settings rows / file listing / about text).
-        ling_kernel_wm_draw_content(s)
+        ling_kernel_wm_draw_window(s)
     }
 }
 
@@ -198,10 +163,11 @@ bind start = do {
             // -- Draw the frame, back to front. ------------------------
             ling_kernel_wm_draw_wallpaper()
 
-            // Top bar: brand left, live RTC clock (locale-offset) right.
+            // Top bar: brand left (also the Applications-menu button),
+            // live RTC clock (locale-offset) right.
             ling_kernel_fb_back_fill_rect(0, 0, fb_w, 30, ling_kernel_theme_color(1))
             ling_kernel_fb_back_fill_rect(0, 30, fb_w, 1, ling_kernel_theme_color(2))
-            ling_kernel_fb_draw_str(12, 8, "LingOS", ling_kernel_theme_color(10), ling_kernel_theme_color(1))
+            ling_kernel_fb_draw_str(12, 8, "= LingOS", ling_kernel_theme_color(10), ling_kernel_theme_color(1))
             ling_kernel_fb_draw_utf8_str(90, 8, ling_kernel_locale_native_name(locale_idx), ling_kernel_theme_color(4), ling_kernel_theme_color(1), ling_kernel_locale_uses_daemon(locale_idx))
             ling_kernel_fb_draw_str(fb_w - 76, 8, ling_kernel_wm_clock_str(), ling_kernel_theme_color(3), ling_kernel_theme_color(1))
 
@@ -214,14 +180,18 @@ bind start = do {
             draw_win_slot(4, count)
             draw_win_slot(5, count)
 
-            // Dock: glass plate behind the three launchers, then each slot.
+            // Dock: glass plate behind the four launchers, then each slot.
             bind dsz = ling_kernel_wm_dock_size()
             bind d0 = ling_kernel_wm_dock_x(0)
-            bind d2 = ling_kernel_wm_dock_x(2)
-            ling_kernel_fb_back_blend_rrect(d0 - 12, ling_kernel_wm_dock_y() - 8, d2 + dsz + 12 - (d0 - 12), dsz + 16, 14, ling_kernel_theme_color(9), 150)
+            bind d3 = ling_kernel_wm_dock_x(3)
+            ling_kernel_fb_back_blend_rrect(d0 - 12, ling_kernel_wm_dock_y() - 8, d3 + dsz + 12 - (d0 - 12), dsz + 16, 14, ling_kernel_theme_color(9), 150)
             draw_dock_slot(0)
             draw_dock_slot(1)
             draw_dock_slot(2)
+            draw_dock_slot(3)
+
+            // Applications menu overlays everything (drawn after dock).
+            ling_kernel_wm_draw_menu()
 
             // Tray: volume + ethernet widgets (and the volume popover with
             // master + per-app rows when open) -- drawn after windows so
