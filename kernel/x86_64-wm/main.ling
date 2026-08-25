@@ -1,37 +1,97 @@
-// LingOS "Live" desktop -- the GRUB "Live" entry boots straight into this
-// (graphics-mode) target now, not the text shell (kernel/x86_64, still
-// used for Rescue and the old CLI-only path). Real event loop, a rendered
-// mouse cursor tracking the PS/2 mouse, and a "liquid" window you can drag
-// by holding the left button anywhere over it -- it springs toward the
-// cursor with damped-oscillator physics instead of snapping there
-// instantly, with a velocity-driven squash/stretch on top, for a
-// soap-film/jelly feel. Draws into framebuffer.rs's back buffer and blits
-// once per frame (ling_kernel_fb_present) rather than drawing shapes
-// straight into the live framebuffer -- that tore visibly on every frame
-// once anything moved (confirmed by an actual screendump catching a
-// mid-redraw frame).
+// LingOS "Live" desktop -- now a real multi-window desktop environment:
+// overlapping windows with z-order/focus/titlebar-drag/close/minimize
+// (state + hit-testing kernel-side in `drivers::wm`, see its module doc
+// for the honest scope note: kernel-side windows, not yet an X-style
+// client/server protocol), a dock with launchers and running indicators,
+// a top bar with a real RTC clock in the selected locale's UTC offset,
+// theme-driven chrome (`drivers::theme` -- switchable live from the
+// Settings window), a gradient wallpaper, and per-window "liquid" spring
+// physics (the same damped-oscillator feel the old single window had,
+// now per-window).
 //
-// The spring simulation's state (position, velocity) lives kernel-side
-// (`ling_kernel_wm_liquid_*`, see `drivers/wm_liquid.rs`'s module doc) --
-// there's no mutable-reassignment construct in this language and the
-// compiler does no tail-call optimization, so nothing on this side of the
-// FFI boundary can safely hold state that persists frame to frame in a loop
-// that runs forever. `ling_kernel_wm_liquid_step` advances the simulation
-// one frame toward wherever this file says the window's *target* should
-// be; everything else here (input, layout, what to actually draw) stays in
-// `.ling`, same as always.
+// Division of labour, unchanged in spirit from the old file: every
+// *drawing decision* for the chrome (shadows, frames, titlebars, dock,
+// cursor) is written here in `.ling`; the kernel supplies state getters,
+// hit-tested input routing (`wm_step`/`wm_key`), and content interiors
+// (`wm_draw_content` -- Settings rows and file listings need loops over
+// runtime-sized data, which kernel-path `.ling` can't express; see
+// `drivers::wm`'s module doc).
 //
-// Honest scope: this is still a minimal desktop -- one draggable window and
-// a locale picker, not the file explorer/editor/media apps/dock a full
-// desktop implies. Those don't exist yet (see the project backlog). What's
-// real here: a default "live" account is actually created and logged in
-// (not just displayed), lingfs is actually mounted, and a real e1000
-// init attempt is made and its real status shown -- not faked. There's no
-// Wi-Fi driver (out of scope -- see the networking plan) and the e1000
-// driver's packet delivery itself is still an open bug (see drivers::
-// net_e1000's module doc), so "connect to the internet" here means "try,
-// and honestly report whether the NIC came up" -- not a working connection.
+// The window slots below are unrolled 0..5 (MAX_WINDOWS) for the same
+// documented reason gui-common unrolls its rows: no counter-carrying
+// loop construct exists on this side of the FFI.
+//
+// Login/greeter note, honestly: this Live target still auto-creates and
+// logs in the "live" account (a real account, really logged in). The
+// password greeter belongs to the installed-disk boot path (a separate
+// piece of the desktop-boot work) -- not faked here in the meantime.
 use "../../apps/gui-common/main"
+
+// One window's chrome + content, if slot `s` is populated. Slot order is
+// back-to-front, so calling this 0..5 in order is painter's-algorithm
+// correct: back windows first, focused window last (on top).
+fn draw_win_slot(s, count) {
+    if s < count {
+        bind x = ling_kernel_wm_slot_x(s)
+        bind y = ling_kernel_wm_slot_y(s)
+        bind w = ling_kernel_wm_slot_w(s)
+        bind h = ling_kernel_wm_slot_h(s)
+        bind tb = ling_kernel_wm_titlebar_h()
+        bind title = ling_kernel_wm_slot_title(s)
+        bind focused = ling_kernel_wm_slot_focused(s)
+
+        // Soft drop shadow first (blended, offset down-right), then a
+        // 1px border in accent (focused) or panel-border (not), then the
+        // panel body inset inside it -- all genuinely rounded now.
+        ling_kernel_fb_back_blend_rrect(x + 6, y + 8, w, h, 12, ling_kernel_theme_color(11), 80)
+        if focused == 1 {
+            ling_kernel_fb_back_fill_rrect(x, y, w, h, 10, ling_kernel_theme_color(10))
+            ling_kernel_fb_back_fill_rrect(x + 1, y + 1, w - 2, h - 2, 9, ling_kernel_theme_color(1))
+            ling_kernel_fb_back_fill_rrect(x + 1, y + 1, w - 2, tb, 9, ling_kernel_theme_color(6))
+            ling_kernel_fb_back_fill_rect(x + 1, y + tb - 8, w - 2, 8, ling_kernel_theme_color(6))
+        } else {
+            ling_kernel_fb_back_fill_rrect(x, y, w, h, 10, ling_kernel_theme_color(2))
+            ling_kernel_fb_back_fill_rrect(x + 1, y + 1, w - 2, h - 2, 9, ling_kernel_theme_color(1))
+            ling_kernel_fb_back_fill_rrect(x + 1, y + 1, w - 2, tb, 9, ling_kernel_theme_color(7))
+            ling_kernel_fb_back_fill_rect(x + 1, y + tb - 8, w - 2, 8, ling_kernel_theme_color(7))
+        }
+
+        // Title, vertically centered in the titlebar. UTF-8 (window titles
+        // are ASCII today, but the locale-aware content isn't always).
+        if focused == 1 {
+            ling_kernel_fb_draw_utf8_str(x + 12, y + 6, title, ling_kernel_theme_color(8), ling_kernel_theme_color(6), 0)
+        } else {
+            ling_kernel_fb_draw_utf8_str(x + 12, y + 6, title, ling_kernel_theme_color(4), ling_kernel_theme_color(7), 0)
+        }
+
+        // Traffic lights, right end of the titlebar: minimize (amber) then
+        // close (red) -- centers match `drivers::wm`'s hit regions
+        // (`hit_minimize`/`hit_close`: two TITLEBAR_H-wide squares).
+        ling_kernel_fb_back_fill_circle(x + w - tb - tb / 2, y + tb / 2, 6, 14718282)
+        ling_kernel_fb_back_fill_circle(x + w - tb / 2, y + tb / 2, 6, 14704730)
+
+        // Interior (settings rows / file listing / about text).
+        ling_kernel_wm_draw_content(s)
+    }
+}
+
+// One dock launcher: hover halo, rounded icon plate, glyph letter, and a
+// running-indicator dot underneath when a window of that kind is open.
+fn draw_dock_slot(i) {
+    bind dx = ling_kernel_wm_dock_x(i)
+    bind dy = ling_kernel_wm_dock_y()
+    bind sz = ling_kernel_wm_dock_size()
+    bind hover = ling_kernel_wm_dock_hover(i)
+    bind running = ling_kernel_wm_dock_running(i)
+    if hover == 1 {
+        ling_kernel_fb_back_fill_rrect(dx - 3, dy - 3, sz + 6, sz + 6, 12, ling_kernel_theme_color(10))
+    }
+    ling_kernel_fb_back_fill_rrect(dx, dy, sz, sz, 10, ling_kernel_theme_color(1))
+    ling_kernel_fb_draw_str(dx + sz / 2 - 4, dy + sz / 2 - 8, ling_kernel_wm_dock_letter(i), ling_kernel_theme_color(3), ling_kernel_theme_color(1))
+    if running == 1 {
+        ling_kernel_fb_back_fill_circle(dx + sz / 2, dy + sz + 7, 3, ling_kernel_theme_color(10))
+    }
+}
 
 bind start = do {
     ling_kernel_init()
@@ -45,82 +105,77 @@ bind start = do {
         bind fb_h = ling_kernel_fb_height()
         ling_kernel_mouse_set_bounds(fb_w, fb_h)
 
-        // A real, serial-visible "we got this far" marker -- vga_write_str
-        // mirrors to serial regardless of display mode (console_write's
-        // doc), so this is a genuine regression check for the exact class
-        // of bug this session already hit once (a silent pre-loop hang
-        // from a double PS/2 mouse handshake looked identical to "just
-        // slow" until a screendump caught the black screen). boot-test.sh
-        // checks for this line on the default (Live) GRUB entry.
+        // Serial-visible progress marker -- boot-test.sh greps for this
+        // exact line on the default (Live) GRUB entry; see the old file's
+        // comment for the real regression this guards against.
         ling_kernel_vga_write_str("wm: entering interactive loop\n")
 
-        run_locale_picker("Welcome to LingOS -- choose a language / locale", 1, 1)
+        run_locale_picker("Welcome to LingOS -- choose a language / locale", 1)
         bind locale_idx = ling_kernel_locale_selected()
 
-        // One-time setup, now that a locale is picked: mount, a default
-        // account so this is a real logged-in session (not anonymous
-        // root), and a real (not simulated) network bring-up attempt.
         ling_kernel_fs_mount()
         ling_kernel_user_create("live", "live", "Live", "User", "", "", "users")
         ling_kernel_user_login("live", "live")
         bind net_ok = ling_kernel_net_init()
 
-        // Sized in virtual-canvas units (drivers::ui_scale's module doc),
-        // like every installer screen -- proportionate to the real screen
-        // instead of a fixed 320x200 that'd look tiny on a big monitor or
-        // oversized on a small one. Position (rx/ry below) stays real-pixel
-        // throughout: it follows the real mouse cursor, which is already in
-        // real framebuffer pixel space, not a design-canvas one.
-        bind ww = ling_kernel_ui_len(320)
-        bind wh = ling_kernel_ui_len(200)
-        bind titlebar_h = ling_kernel_ui_len(24)
+        // Open the About window so the desktop greets with something
+        // draggable rather than an empty wallpaper.
+        ling_kernel_wm_open(0)
 
         while 1 == 1 {
             ling_kernel_mouse_poll()
             bind mx = ling_kernel_mouse_x()
             bind my = ling_kernel_mouse_y()
             bind buttons = ling_kernel_mouse_buttons()
-            bind left_down = buttons % 2
 
-            // No conditional-expression construct in Ling, and a `bind`
-            // inside an if/else doesn't escape it for use afterward -- so
-            // "target is 100 normally, mx-40 while dragging" has to be one
-            // arithmetic expression, not a branch. `left_down` is exactly
-            // 0 or 1, so one term always zeroes out.
-            bind target_x = 100 * (1 - left_down) + (mx - 40) * left_down
-            bind target_y = 100 * (1 - left_down) + (my - 12) * left_down
-
-            ling_kernel_wm_liquid_step(target_x, target_y)
-            bind wx = ling_kernel_wm_liquid_x()
-            bind wy = ling_kernel_wm_liquid_y()
-            bind scale_w_pct = ling_kernel_wm_liquid_scale_w_pct()
-            bind scale_h_pct = ling_kernel_wm_liquid_scale_h_pct()
-
-            // Scale around the window's own center rather than its
-            // top-left corner, so a stretch reads as the sheet swelling in
-            // place instead of the window drifting as it deforms.
-            bind ww2 = ww * scale_w_pct / 100
-            bind wh2 = wh * scale_h_pct / 100
-            bind rx = wx - (ww2 - ww) / 2
-            bind ry = wy - (wh2 - wh) / 2
-
-            bind title = ling_kernel_locale_native_name(locale_idx)
-            bind title_daemon = ling_kernel_locale_uses_daemon(locale_idx)
-
-            ling_kernel_fb_back_clear(2236962)
-            ling_kernel_fb_back_fill_rect(rx, ry, ww2, wh2, 3618615)
-            ling_kernel_fb_back_fill_rect(rx, ry, ww2, titlebar_h, 1710757)
-            ling_kernel_fb_draw_utf8_str(rx + 6, ry + 4, title, 16777215, 1710757, title_daemon)
-            ling_kernel_fb_back_fill_rect(mx, my, 8, 8, 16777215)
-
-            // Real (not decorative) network status, bottom-left. `fb_h`
-            // (not a ui_y() call) since this anchors to the real bottom
-            // edge, not a virtual-canvas position.
-            if net_ok == 1 {
-                ling_kernel_fb_draw_str(ling_kernel_ui_x(20), fb_h - 24, "network: NIC up (internet not yet reachable)", 11184810, 2236962)
-            } else {
-                ling_kernel_fb_draw_str(ling_kernel_ui_x(20), fb_h - 24, "network: no NIC found", 11184810, 2236962)
+            // All click routing (dock, titlebars, buttons, drags) and the
+            // spring advance happen kernel-side in one call; keys go to
+            // whichever window is focused.
+            ling_kernel_wm_step(mx, my, buttons)
+            bind k = ling_kernel_kbd_poll_char()
+            if k > 0 {
+                ling_kernel_wm_key(k)
             }
+
+            // -- Draw the frame, back to front. ------------------------
+            ling_kernel_wm_draw_wallpaper()
+
+            // Top bar: brand left, live RTC clock (locale-offset) right.
+            ling_kernel_fb_back_fill_rect(0, 0, fb_w, 30, ling_kernel_theme_color(1))
+            ling_kernel_fb_back_fill_rect(0, 30, fb_w, 1, ling_kernel_theme_color(2))
+            ling_kernel_fb_draw_str(12, 8, "LingOS", ling_kernel_theme_color(10), ling_kernel_theme_color(1))
+            ling_kernel_fb_draw_utf8_str(90, 8, ling_kernel_locale_native_name(locale_idx), ling_kernel_theme_color(4), ling_kernel_theme_color(1), ling_kernel_locale_uses_daemon(locale_idx))
+            ling_kernel_fb_draw_str(fb_w - 76, 8, ling_kernel_wm_clock_str(), ling_kernel_theme_color(3), ling_kernel_theme_color(1))
+
+            // Windows, unrolled slots (see file doc for why no loop).
+            bind count = ling_kernel_wm_count()
+            draw_win_slot(0, count)
+            draw_win_slot(1, count)
+            draw_win_slot(2, count)
+            draw_win_slot(3, count)
+            draw_win_slot(4, count)
+            draw_win_slot(5, count)
+
+            // Dock: glass plate behind the three launchers, then each slot.
+            bind dsz = ling_kernel_wm_dock_size()
+            bind d0 = ling_kernel_wm_dock_x(0)
+            bind d2 = ling_kernel_wm_dock_x(2)
+            ling_kernel_fb_back_blend_rrect(d0 - 12, ling_kernel_wm_dock_y() - 8, d2 + dsz + 12 - (d0 - 12), dsz + 16, 14, ling_kernel_theme_color(9), 150)
+            draw_dock_slot(0)
+            draw_dock_slot(1)
+            draw_dock_slot(2)
+
+            // Network status stays real and visible, tucked bottom-left.
+            if net_ok == 1 {
+                ling_kernel_fb_draw_str(10, fb_h - 18, "net: NIC up", ling_kernel_theme_color(4), ling_kernel_theme_color(13))
+            } else {
+                ling_kernel_fb_draw_str(10, fb_h - 18, "net: none", ling_kernel_theme_color(4), ling_kernel_theme_color(13))
+            }
+
+            // Cursor: white dot with a dark ring -- visible on any theme.
+            ling_kernel_fb_back_fill_circle(mx, my, 5, 0)
+            ling_kernel_fb_back_fill_circle(mx, my, 4, 16777215)
+
             ling_kernel_fb_present()
         }
     }

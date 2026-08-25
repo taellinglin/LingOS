@@ -3,64 +3,72 @@
 // install, bootloader write) lives in apps/installer/main.ling, shared
 // with the text-mode front-end (kernel/x86_64-installer) -- this file is
 // UI only, rendered into the framebuffer instead of the VGA text console.
-// The purple header bar, progress fill, and color palette come from
+// The header/stepper/card-panel chrome and color palette come from
 // apps/gui-common/main.ling's `draw_screen_frame`, so every screen here
 // (and the Live desktop's own locale picker) shares one consistent look.
 //
-// Flow: system language -> locale/timezone -> hostname -> network ->
-// root account -> user account -> app install (network permitting) ->
-// bootloader. Language and locale/timezone are two independent picks over
-// the *same* 9-entry table (see drivers::locale's module doc) -- this
-// project doesn't have a separate "language" table distinct from "region",
-// so "choose language, then choose locale/timezone" is honestly two passes
-// over one list (gui-common's `run_locale_picker` resets between calls so
-// the second pick isn't just an instant echo of the first), not two
-// different data sources. Only the locale/timezone pick is actually
-// persisted (`/locale`) and used for the picked-locale UI elsewhere
-// (native-script titles, the Live desktop); the language pick is recorded
-// to `/language` but doesn't yet drive full UI translation -- this
-// project's curated Unicode glyph coverage (see font_unicode's module doc)
-// is a handful of phrases per script, not enough vocabulary to translate
-// arbitrary installer prompts, so the screens below stay in English
-// regardless of the language step's choice. Disclosed here rather than
-// silently claimed as more than it is.
+// 8-step flow (see gui-common's `step_label`): Keyboard -> Language ->
+// Locale (timezone + hostname + mount) -> Root -> User -> Network ->
+// Packages -> Finish. Language and locale/timezone are two independent
+// picks over the *same* 9-entry table (see drivers::locale's module doc)
+// -- this project doesn't have a separate "language" table distinct from
+// "region", so "choose language, then choose locale/timezone" is honestly
+// two passes over one list (gui-common's `run_locale_picker` resets
+// between calls so the second pick isn't just an instant echo of the
+// first), not two different data sources. Only the locale/timezone pick is
+// actually persisted (`/locale`) and used for the picked-locale UI
+// elsewhere (native-script titles, the Live desktop); the language pick is
+// recorded to `/language` but doesn't yet drive full UI translation --
+// this project's curated Unicode glyph coverage (see font_unicode's module
+// doc) is a handful of phrases per script, not enough vocabulary to
+// translate arbitrary installer prompts, so the screens below stay in
+// English regardless of the language step's choice. Disclosed here rather
+// than silently claimed as more than it is.
 //
-// Fully keyboard-driven, no mouse: the locale picker is arrow-key/Enter
-// (a highlighted row, not a raw digit press), and root/user passwords are
-// typed twice and checked (`ling_kernel_gui_read_password_confirmed`,
-// retrying on a mismatch) rather than trusted on one entry. Still no
-// mouse-driven widgets (buttons, click-into text fields) -- everything
-// here is full-screen, one step at a time, the same "render a screen,
-// block on one read" idiom as the text installer, just rendered as pixels
-// instead of VGA text. A real Next/Back multi-widget wizard is still
-// future work.
+// Fully keyboard-driven, no mouse: the locale/keyboard-layout pickers are
+// arrow-key/Enter (a highlighted row, not a raw digit press), and root/
+// user passwords are typed twice and checked
+// (`ling_kernel_gui_read_password_confirmed`, retrying on a mismatch)
+// rather than trusted on one entry. Still no mouse-driven widgets
+// (buttons, click-into text fields) -- everything here is full-screen, one
+// step at a time, the same "render a screen, block on one read" idiom as
+// the text installer, just rendered as pixels instead of VGA text. A real
+// Next/Back multi-widget wizard is still future work. The reference
+// mockup's rounded panels, circular stepper dots, disk-selection cards,
+// live time/timezone-by-city preview, and WiFi network picker aren't
+// replicated -- no rounded-rect primitive, no disk enumeration, no RTC
+// write support, no per-city timezone database, and no WiFi driver exist
+// in this kernel; this screen adopts the mockup's visual language (dark
+// palette, stepper bar, bordered card, ring-selected rows) onto the 8
+// steps this kernel can actually back, rather than faking screens with
+// nothing real behind them.
 use "../../apps/gui-common/main"
 use "../../apps/installer/main"
 
 fn draw_status(title, step, text) {
-    draw_screen_frame(title, step, 7)
-    ling_kernel_fb_draw_str(ling_kernel_ui_x(20), ling_kernel_ui_y(96), text, color_text(), color_bg())
+    draw_screen_frame(title, step)
+    ling_kernel_fb_draw_str(ling_kernel_ui_x(36), ling_kernel_ui_y(132), text, color_text(), color_panel())
     ling_kernel_fb_present()
 }
 
 fn draw_prompt_and_read(title, step, label) {
-    draw_screen_frame(title, step, 7)
-    ling_kernel_fb_draw_str(ling_kernel_ui_x(20), ling_kernel_ui_y(96), label, color_text(), color_bg())
+    draw_screen_frame(title, step)
+    ling_kernel_fb_draw_str(ling_kernel_ui_x(36), ling_kernel_ui_y(132), label, color_text(), color_panel())
     ling_kernel_fb_present()
-    return ling_kernel_gui_read_line(ling_kernel_ui_x(20), ling_kernel_ui_y(126), color_text(), color_bg())
+    return ling_kernel_gui_read_line(ling_kernel_ui_x(36), ling_kernel_ui_y(162), color_text(), color_panel())
 }
 
 // Prompts for a password, typed twice, retrying (drawn by the intrinsic
 // itself -- see its doc) until the two entries match.
 fn draw_prompt_and_read_password(title, step, label) {
-    draw_screen_frame(title, step, 7)
-    ling_kernel_fb_draw_str(ling_kernel_ui_x(20), ling_kernel_ui_y(96), label, color_text(), color_bg())
-    ling_kernel_fb_draw_str(ling_kernel_ui_x(20), ling_kernel_ui_y(122), "Password:", color_dim(), color_bg())
-    ling_kernel_fb_draw_str(ling_kernel_ui_x(20), ling_kernel_ui_y(172), "Confirm password:", color_dim(), color_bg())
+    draw_screen_frame(title, step)
+    ling_kernel_fb_draw_str(ling_kernel_ui_x(36), ling_kernel_ui_y(132), label, color_text(), color_panel())
+    ling_kernel_fb_draw_str(ling_kernel_ui_x(36), ling_kernel_ui_y(158), "Password:", color_dim(), color_panel())
+    ling_kernel_fb_draw_str(ling_kernel_ui_x(36), ling_kernel_ui_y(208), "Confirm password:", color_dim(), color_panel())
     ling_kernel_fb_present()
     return ling_kernel_gui_read_password_confirmed(
-        ling_kernel_ui_x(20), ling_kernel_ui_y(142), ling_kernel_ui_y(192), ling_kernel_ui_y(222),
-        color_text(), color_bg(), color_error()
+        ling_kernel_ui_x(36), ling_kernel_ui_y(178), ling_kernel_ui_y(228), ling_kernel_ui_y(258),
+        color_text(), color_panel(), color_error()
     )
 }
 
@@ -76,13 +84,15 @@ bind start = do {
         bind fb_h = ling_kernel_fb_height()
         ling_kernel_mouse_set_bounds(fb_w, fb_h)
 
-        run_locale_picker("Step 1/7 -- Choose your system language", 1, 7)
+        run_kbdlayout_picker("Choose your keyboard layout", 0)
+
+        run_locale_picker("Choose your system language", 1)
         bind lang_idx = ling_kernel_locale_selected()
 
-        run_locale_picker("Step 2/7 -- Choose your locale and timezone", 2, 7)
+        run_locale_picker("Choose your locale and timezone", 2)
         bind locale_idx = ling_kernel_locale_selected()
 
-        draw_status("Step 2/7 -- Locale and timezone", 2, "Mounting disk...")
+        draw_status("Locale and timezone", 2, "Mounting disk...")
         bind fs_ok = installer_mount()
         if fs_ok == 0 {
             draw_status("Setup", 2, "Disk mount FAILED -- cannot install. Reboot and try again.")
@@ -93,24 +103,24 @@ bind start = do {
         installer_save_locale(locale_idx)
         ling_kernel_fs_write("/language", ling_kernel_locale_id(lang_idx))
 
-        bind hn = draw_prompt_and_read("Step 3/7 -- Hostname", 3, "Hostname for this system:")
+        bind hn = draw_prompt_and_read("Locale and timezone", 2, "Hostname for this system:")
         installer_save_hostname(hn)
 
-        draw_status("Step 4/7 -- Network", 4, "Setting up network...")
-        bind net_ok = installer_net_attempt()
-        if net_ok == 1 {
-            draw_status("Step 4/7 -- Network", 4, "Adapter found, link up. (Internet reachability is a known open issue -- continuing.)")
-        } else {
-            draw_status("Step 4/7 -- Network", 4, "No adapter found -- continuing offline.")
-        }
-
-        bind root_pw = draw_prompt_and_read_password("Step 5/7 -- Root account", 5, "Set a password for the root account:")
+        bind root_pw = draw_prompt_and_read_password("Root account", 3, "Set a password for the root account:")
         installer_create_root(root_pw)
 
-        bind user_name = draw_prompt_and_read("Step 6/7 -- User account", 6, "Create a user account (username, blank to skip):")
+        bind user_name = draw_prompt_and_read("User account", 4, "Create a user account (username, blank to skip):")
         if len(user_name) != 0 {
-            bind user_pw = draw_prompt_and_read_password("Step 6/7 -- User account", 6, "Password for this account:")
+            bind user_pw = draw_prompt_and_read_password("User account", 4, "Password for this account:")
             installer_create_user(user_name, user_pw)
+        }
+
+        draw_status("Network", 5, "Setting up network...")
+        bind net_ok = installer_net_attempt()
+        if net_ok == 1 {
+            draw_status("Network", 5, "Adapter found, link up. (Internet reachability is a known open issue -- continuing.)")
+        } else {
+            draw_status("Network", 5, "No adapter found -- continuing offline.")
         }
 
         // No real package catalog ships by default (no network registry
@@ -121,15 +131,15 @@ bind start = do {
         // without a NIC, per "without network we should just install the
         // base system."
         if net_ok == 1 {
-            bind pick = draw_prompt_and_read("Step 7/7 -- Packages", 7, "Package to install now from catalog/ (blank to skip):")
+            bind pick = draw_prompt_and_read("Packages", 6, "Package to install now from catalog/ (blank to skip):")
             bind pick_ok = installer_install_package(pick)
             if pick_ok == 1 {
-                draw_status("Step 7/7 -- Packages", 7, "Package installed.")
+                draw_status("Packages", 6, "Package installed.")
             } else if pick_ok == 0 {
-                draw_status("Step 7/7 -- Packages", 7, "Package install failed (not found in catalog/).")
+                draw_status("Packages", 6, "Package install failed (not found in catalog/).")
             }
         } else {
-            draw_status("Step 7/7 -- Packages", 7, "No network adapter: installing the base system only.")
+            draw_status("Packages", 6, "No network adapter: installing the base system only.")
         }
 
         draw_status("Finishing up", 7, "Installing bootloader...")
