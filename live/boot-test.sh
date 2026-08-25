@@ -157,7 +157,12 @@ boot_and_capture_navigated() {
 }
 
 if [ -f "$DIST_DIR/lingos-x86_64.iso" ]; then
+    # -boot d: the shared test disk may have been installed to by an
+    # earlier run (it then carries a real bootable MBR), and SeaBIOS
+    # prefers the disk -- without this the "ISO" tests silently boot the
+    # installed system's login greeter instead.
     log="$(boot_and_capture x86_64-live qemu-system-x86_64 \
+        -boot d \
         -cdrom "$DIST_DIR/lingos-x86_64.iso" \
         -drive file="$X86_64_DISK",format=raw,if=ide,index=0 \
         -m 256M -display none)"
@@ -166,6 +171,7 @@ if [ -f "$DIST_DIR/lingos-x86_64.iso" ]; then
     # 3 "down"s from the GRUB default (Live) reaches Rescue -- see grub.cfg
     # (Live, Install-GUI, Install-text, Rescue).
     log="$(boot_and_capture_navigated x86_64-rescue 3 qemu-system-x86_64 \
+        -boot d \
         -cdrom "$DIST_DIR/lingos-x86_64.iso" \
         -drive file="$X86_64_DISK",format=raw,if=ide,index=0 \
         -m 256M -display none)"
