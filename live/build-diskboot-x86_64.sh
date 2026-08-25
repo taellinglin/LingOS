@@ -23,10 +23,15 @@ DIST_DIR="$LINGOS_ROOT/dist"
 WORK_DIR="$DIST_DIR/.diskboot-work"
 OUT="$DIST_DIR/diskboot-x86_64.img"
 
-KERNEL_ELF="$DIST_DIR/kernel/lingos-kernel-x86_64"
+# Installed disks boot the graphics DESKTOP kernel now (login greeter ->
+# WM/DE), not the text shell: stage2 sets a VBE mode and leaves its LFB
+# handoff block, and kernel/x86_64-wm's main.ling shows the greeter when
+# ling_kernel_boot_is_disk() reports the no-Multiboot2 path. The text
+# kernel remains reachable via the Live ISO's Rescue entry.
+KERNEL_ELF="$DIST_DIR/kernel/lingos-wm-x86_64"
 if [ ! -f "$KERNEL_ELF" ]; then
     echo "error: expected kernel ELF not found at $KERNEL_ELF" >&2
-    echo "  build it first: ling.exe build kernel/x86_64 --platform kernel --out dist" >&2
+    echo "  build it first: ling.exe build kernel/x86_64-wm --platform kernel --out dist" >&2
     exit 1
 fi
 

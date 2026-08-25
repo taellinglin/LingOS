@@ -33,6 +33,9 @@ KERNEL_START_LBA equ 18
 CHUNK_SECTORS    equ 64      ; 32KiB/read -- stays within one 64KiB real-mode segment
 STAGING_SEG      equ 0x1000  ; linear 0x10000: contiguous low-memory staging area
 KERNEL_LINK_BASE equ 0x100000 ; must match KERNEL_LINKER_SCRIPT's `. = 1M;`
+LFB_INFO_ADDR    equ 0x6000   ; VBE handoff block (keep in sync with
+                              ; framebuffer.rs's disk-boot fallback)
+LFB_INFO_MAGIC   equ 0x4942464C ; "LFBI" little-endian
 CODE_SEL         equ 0x08
 DATA_SEL         equ 0x10
 KERNEL_HEADER_MAGIC equ 0x474E4B4C ; keep in sync with pack_header.py's MAGIC
@@ -46,6 +49,43 @@ start:
     in al, 0x92
     or al, 2
     out 0x92, al
+
+    ; --- Enter unreal mode: briefly flip to protected mode to load DS/ES
+    ; with the flat 4GiB data descriptor, then drop back to real mode. The
+    ; 386+ keeps the cached 4GiB segment LIMIT across the return (real-mode
+    ; segment reloads only change the base), so `a32 rep movsd` can write
+    ; above 1MiB from real mode. This removes the old design's hard cap:
+    ; the whole kernel had to fit in low memory (staging ceiling ~589KiB),
+    ; and the graphics-desktop kernel is already at 559KiB and growing.
+    ; BIOS int 10h/13h keep working -- they run real-mode code below 1MiB
+    ; and never notice the wider limits.
+    cli
+    lgdt [gdt_desc]
+    mov eax, cr0
+    or eax, 1
+    mov cr0, eax
+    mov bx, DATA_SEL
+    mov ds, bx
+    mov es, bx
+    and eax, 0xFFFFFFFE
+    mov cr0, eax
+    xor bx, bx
+    mov ds, bx
+    mov es, bx
+    sti
+
+    ; --- VBE: set a linear-framebuffer graphics mode BEFORE loading the
+    ; kernel, and leave a tagged handoff block at LFB_INFO_ADDR for
+    ; framebuffer.rs's disk-boot path (no Multiboot2 info exists here).
+    ; Installed disks boot the graphics desktop now, so a real mode-set
+    ; matters; on any VBE failure the block simply isn't written and the
+    ; kernel runs framebuffer-less (serial/VGA text still work).
+    mov word [vbe_try_mode], 0x0118 ; 1024x768, the widest-supported choice
+    call vbe_try
+    jnc .vbe_done
+    mov word [vbe_try_mode], 0x0115 ; 800x600 fallback
+    call vbe_try
+.vbe_done:
 
     ; --- Read the on-disk kernel header (1 sector, fixed LBA) ---
     mov si, header_dap
@@ -64,9 +104,13 @@ start:
     mov eax, [header_buf + 12]  ; bss_extra_bytes
     mov [bss_extra], eax
 
-    ; --- Load the whole kernel into one contiguous staging area ---
-    mov word [cur_seg], STAGING_SEG
+    ; --- Load the kernel: bounce each 32KiB chunk through the fixed low
+    ; staging buffer, then unreal-copy it straight up to its 1MiB link
+    ; address. The destination cursor is 32-bit; the kernel image can now
+    ; be as large as RAM, not as large as low memory.
+    mov dword [cur_dest], KERNEL_LINK_BASE
     mov dword [cur_lba], KERNEL_START_LBA
+    mov word [chunk_seg], STAGING_SEG
 
 .load_loop:
     mov eax, [remaining_sectors]
@@ -79,8 +123,6 @@ start:
 .chunk_size_ok:
     mov [chunk_count], cx
 
-    mov ax, [cur_seg]
-    mov [chunk_seg], ax
     mov eax, [cur_lba]
     mov [chunk_lba], eax
 
@@ -89,11 +131,19 @@ start:
     int 0x13
     jc disk_error
 
+    ; Unreal copy: DS/ES still carry 4GiB cached limits from the dance
+    ; above; bases are 0, so esi/edi are plain linear addresses.
+    movzx ecx, word [chunk_count]
+    shl ecx, 7               ; sectors -> dwords (512/4 = 128)
+    mov esi, STAGING_SEG << 4
+    mov edi, [cur_dest]
+    cld
+    a32 rep movsd
+    mov [cur_dest], edi
+
     movzx eax, word [chunk_count]
     add [cur_lba], eax
     sub [remaining_sectors], eax
-    shl eax, 5              ; sectors -> paragraphs (512/16 = 32 per sector)
-    add [cur_seg], ax
     jmp .load_loop
 
 .load_done:
@@ -103,6 +153,48 @@ start:
     or eax, 1
     mov cr0, eax
     jmp CODE_SEL:pm_entry
+
+; --- VBE helper: query [vbe_try_mode]; if it exists with a linear
+; framebuffer and 24/32bpp, set it (LFB bit 14) and write the handoff
+; block. Returns CF clear on success, set on failure. Real mode, es=0.
+vbe_try:
+    mov ax, 0x4F01
+    mov cx, [vbe_try_mode]
+    mov di, vbe_mode_buf
+    int 0x10
+    cmp ax, 0x004F
+    jne .fail
+    test byte [vbe_mode_buf], 0x80  ; ModeAttributes bit 7: LFB supported
+    jz .fail
+    mov al, [vbe_mode_buf + 0x19]   ; BitsPerPixel
+    cmp al, 24
+    je .bpp_ok
+    cmp al, 32
+    jne .fail
+.bpp_ok:
+    mov ax, 0x4F02
+    mov bx, [vbe_try_mode]
+    or bx, 0x4000                    ; bit 14: use the linear framebuffer
+    int 0x10
+    cmp ax, 0x004F
+    jne .fail
+    ; Handoff block for framebuffer.rs's disk-boot path.
+    mov dword [LFB_INFO_ADDR], LFB_INFO_MAGIC
+    mov eax, [vbe_mode_buf + 0x28]  ; PhysBasePtr
+    mov [LFB_INFO_ADDR + 4], eax
+    movzx eax, word [vbe_mode_buf + 0x10] ; BytesPerScanLine
+    mov [LFB_INFO_ADDR + 8], eax
+    movzx eax, word [vbe_mode_buf + 0x12] ; XResolution
+    mov [LFB_INFO_ADDR + 12], eax
+    movzx eax, word [vbe_mode_buf + 0x14] ; YResolution
+    mov [LFB_INFO_ADDR + 16], eax
+    movzx eax, byte [vbe_mode_buf + 0x19] ; BitsPerPixel
+    mov [LFB_INFO_ADDR + 20], eax
+    clc
+    ret
+.fail:
+    stc
+    ret
 
 disk_error:
     mov si, err_msg
@@ -146,11 +238,14 @@ total_sectors: dd 0
 remaining_sectors: dd 0
 kernel_entry: dd 0
 bss_extra: dd 0
-cur_seg: dw 0
+cur_dest: dd 0
 cur_lba: dd 0
+vbe_try_mode: dw 0
 
 align 4
 header_buf: times 512 db 0
+align 4
+vbe_mode_buf: times 256 db 0
 
 align 8
 gdt_start:
@@ -177,20 +272,14 @@ pm_entry:
     mov esp, 0x90000
 
     cld
-    ; Copy the staged kernel image up to its link address.
-    mov esi, STAGING_SEG << 4
+    ; The kernel is already at its link address (the load loop unreal-
+    ; copied each chunk as it was read) -- only .bss remains: zero-fill
+    ; right after the file content.
     mov edi, KERNEL_LINK_BASE
     mov eax, [total_sectors]
     shl eax, 9              ; sectors -> bytes
-    mov ecx, eax
-    add ecx, 3
-    shr ecx, 2               ; round up to whole dwords
-    rep movsd
-
-    ; Zero-fill .bss right after the copied file content (edi is already
-    ; sitting at KERNEL_LINK_BASE + file_size_bytes here).
-    mov eax, [bss_extra]
-    mov ecx, eax
+    add edi, eax
+    mov ecx, [bss_extra]
     add ecx, 3
     shr ecx, 2
     xor eax, eax
