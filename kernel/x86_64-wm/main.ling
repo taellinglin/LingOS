@@ -52,7 +52,9 @@ fn greeter_attempt(fb_w, fb_h) {
     bind password = ling_kernel_gui_read_line_masked(cx + 110, cy + 124, ling_kernel_theme_color(3), ling_kernel_theme_color(1))
     bind ok = ling_kernel_user_login(username, password)
     if ok == 0 {
-        ling_kernel_fb_draw_str(cx + 24, cy + 164, "login failed -- try again", ling_kernel_theme_color(5), ling_kernel_theme_color(1))
+        // Explicit, standard wording; drawn in the error color and held on
+        // screen a moment (error jingle) so a wrong user/pass is obvious.
+        ling_kernel_fb_draw_str(cx + 24, cy + 164, "Invalid username or password.", ling_kernel_theme_color(5), ling_kernel_theme_color(1))
         ling_kernel_fb_present()
         ling_kernel_audio_jingle(4)
     } else {
@@ -114,37 +116,41 @@ bind start = do {
         bind audio_ok = ling_kernel_audio_init()
 
         bind disk_boot = ling_kernel_boot_is_disk()
+        // One-time setup: mount the filesystem (accounts/settings live in
+        // it); for Live, pick a locale and create the auto-login account
+        // once. For an installed disk, default the locale (install-time
+        // persistence is still roadmap).
+        ling_kernel_fs_mount()
         if disk_boot == 1 {
-            // Installed system: mount the real filesystem (accounts live
-            // in it), then hold at the greeter until a real login.
-            // Locale defaults to entry 0 -- persisting the install-time
-            // locale choice into lingfs is still on the roadmap, so
-            // defaulting is the honest option, not a fake restore.
             ling_kernel_locale_reset()
             ling_kernel_locale_confirm_cursor()
-            ling_kernel_fs_mount()
-            while greeter_attempt(fb_w, fb_h) == 0 {
-                ling_kernel_vga_write_str("greeter: login failed, retrying\n")
-            }
-            ling_kernel_vga_write_str("greeter: logged in\n")
         } else {
             run_locale_picker("Welcome to LingOS -- choose a language / locale", 1)
-            ling_kernel_fs_mount()
             ling_kernel_user_create("live", "live", "Live", "User", "", "", "users")
-            ling_kernel_user_login("live", "live")
         }
-        bind locale_idx = ling_kernel_locale_selected()
         bind net_ok = ling_kernel_net_init()
 
-        if audio_ok == 1 {
-            ling_kernel_audio_jingle(0)
-        }
-
-        // Open the About window so the desktop greets with something
-        // draggable rather than an empty wallpaper.
-        ling_kernel_wm_open(0)
-
+        // Session loop: log in, run the desktop until "Log Out" is picked
+        // from the Power menu, then come back here to re-authenticate. On
+        // an installed disk that means the greeter again; on Live it just
+        // re-logs the live account.
         while 1 == 1 {
+            if disk_boot == 1 {
+                while greeter_attempt(fb_w, fb_h) == 0 {
+                    ling_kernel_vga_write_str("greeter: invalid credentials, retrying\n")
+                }
+                ling_kernel_vga_write_str("greeter: logged in\n")
+            } else {
+                ling_kernel_user_login("live", "live")
+            }
+            bind locale_idx = ling_kernel_locale_selected()
+            if audio_ok == 1 {
+                ling_kernel_audio_jingle(0)
+            }
+            ling_kernel_wm_clear_logout()
+            ling_kernel_wm_open(0)
+
+            while ling_kernel_wm_logout_requested() == 0 {
             ling_kernel_mouse_poll()
             bind mx = ling_kernel_mouse_x()
             bind my = ling_kernel_mouse_y()
@@ -215,5 +221,8 @@ bind start = do {
 
             ling_kernel_fb_present()
         }
+        // Logged out -- the session loop's next login step re-authenticates
+        // (user_login overwrites the current session), so just loop back.
+    }
     }
 }
