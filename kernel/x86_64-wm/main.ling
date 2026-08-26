@@ -180,17 +180,19 @@ bind start = do {
             draw_win_slot(4, count)
             draw_win_slot(5, count)
 
-            // Dock: glass plate behind the six launchers, then each slot.
+            // Dock: glass plate behind the eight launchers, then each slot.
             bind dsz = ling_kernel_wm_dock_size()
             bind d0 = ling_kernel_wm_dock_x(0)
-            bind d5 = ling_kernel_wm_dock_x(5)
-            ling_kernel_fb_back_blend_rrect(d0 - 12, ling_kernel_wm_dock_y() - 8, d5 + dsz + 12 - (d0 - 12), dsz + 16, 14, ling_kernel_theme_color(9), 150)
+            bind d7 = ling_kernel_wm_dock_x(7)
+            ling_kernel_fb_back_blend_rrect(d0 - 12, ling_kernel_wm_dock_y() - 8, d7 + dsz + 12 - (d0 - 12), dsz + 16, 14, ling_kernel_theme_color(9), 150)
             draw_dock_slot(0)
             draw_dock_slot(1)
             draw_dock_slot(2)
             draw_dock_slot(3)
             draw_dock_slot(4)
             draw_dock_slot(5)
+            draw_dock_slot(6)
+            draw_dock_slot(7)
 
             // Applications menu overlays everything (drawn after dock).
             ling_kernel_wm_draw_menu()
