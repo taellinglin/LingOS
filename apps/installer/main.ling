@@ -73,6 +73,24 @@ fn installer_install_package(pkg_name) {
     return ling_kernel_pkg_install(pkg_name)
 }
 
+// Download + install a package from the public registry (fu.ling-lang.org):
+// resolves the latest version, fetches /dl/<name>-<version>.tgz, unpacks it
+// into the mounted target filesystem. Returns 1 on success, 0 on failure,
+// 2 if `pkg_name` was blank. Needs a working NIC (installer_net_attempt).
+fn installer_install_from_registry(pkg_name) {
+    if len(pkg_name) == 0 {
+        return 2
+    }
+    return ling_kernel_lingfu_fetch_install(pkg_name)
+}
+
+// Persist whether the SSH server starts at boot on the installed system.
+// Writes /services (which also marks services configured, so the installed
+// system's first boot won't re-ask). on = 1 to enable, 0 to disable.
+fn installer_set_ssh(on) {
+    ling_kernel_services_set_ssh(on)
+}
+
 // Writes the bootloader payload GRUB handed this kernel (as a Multiboot2
 // module) to LBA 0 of the target disk, so it boots standalone afterward.
 // Returns 1 on success, 0 if no boot payload module was found at all (the

@@ -279,6 +279,18 @@ fn run_command(cmd, arg) {
         ling_kernel_life_run()
     } else if cmd == "about" {
         ling_kernel_vga_write_str("LingOS -- a basic OS, made in Ling\n")
+    } else if cmd == "sshd" {
+        // Bring up the NIC, then listen once for an inbound SSH connection and
+        // do the version exchange (progress prints to the serial log). Proves
+        // an external `ssh` client can reach LingOS; the encrypted transport +
+        // shell are still WIP (see ling-kernel drivers::sshd).
+        bind net_ok = ling_kernel_net_init()
+        if net_ok == 0 {
+            ling_kernel_vga_write_str("sshd: no NIC found -- can't listen\n")
+        } else {
+            ling_kernel_vga_write_str("sshd: listening on port 22 (see serial log)...\n")
+            ling_kernel_sshd_serve()
+        }
     } else if cmd == "selftest" {
         bind ok = ling_kernel_fs_selftest()
         if ok == 1 {

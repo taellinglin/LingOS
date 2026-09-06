@@ -168,6 +168,21 @@ bind start = do {
             ling_kernel_vga_set_color(7, 0)
         }
 
+        // SSH server: a real service now (drivers::services). Enabling it here
+        // writes /services on the target -- the installed system starts sshd at
+        // boot, and first boot won't re-ask (the file already exists).
+        ling_kernel_vga_write_str("\nStart the SSH server at boot? (yes/no): ")
+        bind ssh_ans = ling_kernel_read_line()
+        if ssh_ans == "yes" {
+            installer_set_ssh(1)
+            ling_kernel_vga_set_color(10, 0)
+            ling_kernel_vga_write_str("SSH server enabled at boot.\n")
+            ling_kernel_vga_set_color(7, 0)
+        } else {
+            installer_set_ssh(0)
+            ling_kernel_vga_write_str("SSH server left disabled (enable later in Settings).\n")
+        }
+
         ling_kernel_vga_write_str("\nStep 5/7 -- Set a password for the root account\n")
         bind root_pw = ling_kernel_read_line_masked_confirmed()
         installer_create_root(root_pw)
@@ -186,20 +201,45 @@ bind start = do {
         // checklist: this shell has no list/loop primitive to walk a
         // typed multi-name line with. Skipped entirely without a NIC, per
         // "without network we should just install the base system."
+        // Package sets: curated ling-* bundles pulled from the public registry
+        // (fu.ling-lang.org) into the target. Needs a NIC; the install progress
+        // for each package prints below as it downloads + unpacks.
         if net_ok == 1 {
-            ling_kernel_vga_write_str("\nStep 7/7 -- Available packages (catalog/):\n")
-            ling_kernel_fs_ls("catalog")
-            ling_kernel_vga_write_str("Package to install now (blank to skip, more later via 'lingfu install'): ")
-            bind pick = ling_kernel_read_line()
-            bind pick_ok = installer_install_package(pick)
-            if pick_ok == 1 {
-                ling_kernel_vga_set_color(10, 0)
-                ling_kernel_vga_write_str("installed.\n")
-                ling_kernel_vga_set_color(7, 0)
-            } else if pick_ok == 0 {
-                ling_kernel_vga_set_color(12, 0)
-                ling_kernel_vga_write_str("install failed (not found in catalog/) -- try again later with 'lingfu install'.\n")
-                ling_kernel_vga_set_color(7, 0)
+            ling_kernel_vga_write_str("\nStep 7/7 -- Package set to install from the registry (fu.ling-lang.org):\n")
+            ling_kernel_vga_write_str("  1 None      base system only\n")
+            ling_kernel_vga_write_str("  2 Minimal   ling-core\n")
+            ling_kernel_vga_write_str("  3 Game      ling-core, ling-game, ling-graphics, ling-audio\n")
+            ling_kernel_vga_write_str("  4 Crypto    ling-core, ling-crypto\n")
+            ling_kernel_vga_write_str("  5 AI        ling-core, ling-ai\n")
+            ling_kernel_vga_write_str("  6 Web       ling-core, ling-http, ling-graphics\n")
+            ling_kernel_vga_write_str("  7 Custom    type one package name\n")
+            ling_kernel_vga_write_str("Choose (1-7): ")
+            bind pset = ling_kernel_read_line()
+            if pset == "7" {
+                ling_kernel_vga_write_str("Package name from the registry (blank to skip): ")
+                bind cname = ling_kernel_read_line()
+                if len(cname) != 0 {
+                    installer_install_from_registry(cname)
+                }
+            } else if pset == "2" {
+                installer_install_from_registry("ling-core")
+            } else if pset == "3" {
+                installer_install_from_registry("ling-core")
+                installer_install_from_registry("ling-game")
+                installer_install_from_registry("ling-graphics")
+                installer_install_from_registry("ling-audio")
+            } else if pset == "4" {
+                installer_install_from_registry("ling-core")
+                installer_install_from_registry("ling-crypto")
+            } else if pset == "5" {
+                installer_install_from_registry("ling-core")
+                installer_install_from_registry("ling-ai")
+            } else if pset == "6" {
+                installer_install_from_registry("ling-core")
+                installer_install_from_registry("ling-http")
+                installer_install_from_registry("ling-graphics")
+            } else {
+                ling_kernel_vga_write_str("No packages selected -- base system only.\n")
             }
         } else {
             ling_kernel_vga_write_str("\nStep 7/7 -- no network adapter: installing the base system only.\n")

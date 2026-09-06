@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# Interaction test: boot to desktop, open the Applications menu (brand
+# corner), pick "horizon (box-model browser)", type a URL into its
+# always-focused address bar, Enter, screendump. Verifies horizon-browser's
+# DOM/CSS/layout engine end to end inside the real WM -- not just that it
+# compiles for the lingos target.
+#
+# Serves horizon-fixtures/test.html from the host over QEMU SLIRP's host
+# alias (10.0.2.2), same networking story as shot-lingfu.sh. Port 80, no
+# scheme in the typed URL: `netstack::parse_url` treats a bare "host/path"
+# as plain HTTP on port 80 by default, which sidesteps ':' entirely --
+# QEMU's HMP `sendkey shift-semicolon` does not reliably reach the guest as
+# a shifted keypress (confirmed empirically: it types a literal ';').
+set -uo pipefail
+DIR="$(cd "$(dirname "$0")" && pwd)/out"; mkdir -p "$DIR"
+ISO=/mnt/c/Users/User/Programs/LingOS/dist/lingos-x86_64.iso
+DISK=/mnt/c/Users/User/Programs/LingOS/dist/lingos-test-disk.img
+SERIAL="$DIR/serial-horizon.log"
+
+cd "$(dirname "$0")/horizon-fixtures"
+python3 -m http.server 80 --bind 127.0.0.1 >/dev/null 2>&1 &
+SRV=$!
+trap "kill $SRV 2>/dev/null" EXIT
+sleep 1
+
+type_url() {
+    echo "$1" | fold -w1 | while IFS= read -r c; do
+        case "$c" in
+            "/") c=slash ;;
+            ".") c=dot ;;
+        esac
+        echo "sendkey $c"
+        sleep 0.25
+    done
+}
+
+{
+    sleep 24
+    echo "sendkey ret"          # locale picker -> desktop
+    sleep 6
+    echo "mouse_move 42 15"     # brand corner (top-left, opens Applications menu)
+    sleep 0.5
+    echo "mouse_button 1"
+    sleep 0.2
+    echo "mouse_button 0"
+    sleep 1
+    echo "mouse_move 68 93"     # menu row 2: "horizon (box-model browser)"
+    sleep 0.5
+    echo "mouse_button 1"
+    sleep 0.2
+    echo "mouse_button 0"
+    sleep 2                     # horizon window opens, address bar auto-focused
+    type_url "10.0.2.2/test.html"
+    sleep 0.5
+    echo "sendkey ret"          # navigate
+    sleep 3
+    echo "screendump $DIR/horizon-page.ppm"
+    sleep 1
+    echo "quit"
+} | qemu-system-x86_64 \
+    -boot d \
+    -cdrom "$ISO" \
+    -drive file="$DISK",format=raw,if=ide,index=0 \
+    -serial file:"$SERIAL" \
+    -display none -monitor stdio -m 256M -nic user,model=e1000 >"$DIR/monitor-horizon.log" 2>&1
+
+ffmpeg -y -loglevel error -i "$DIR/horizon-page.ppm" "$DIR/horizon-page.png"
+ls -la "$DIR"/horizon-page.png

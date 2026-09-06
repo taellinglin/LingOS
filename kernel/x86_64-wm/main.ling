@@ -129,6 +129,20 @@ bind start = do {
             ling_kernel_user_create("live", "live", "Live", "User", "", "", "users")
         }
         bind net_ok = ling_kernel_net_init()
+        // First-boot only (no /services yet): ask whether to start SSH at boot
+        // and persist it. This used to be a side effect of net_init, but that
+        // fired for the installer too and ate the first char of its own SSH
+        // answer -- so it's an explicit desktop-boot step now.
+        ling_kernel_services_boot_configure()
+        // If SSH is enabled (installer choice or the first-boot prompt above),
+        // start the SSH server as a background task so another machine can ssh
+        // in without anyone typing a command on the console first.
+        if ling_kernel_services_ssh_enabled() == 1 {
+            ling_kernel_sshd_start()
+        }
+        // Bring the Messenger listener online at boot so chats arrive even
+        // before (or without) opening the Messenger window.
+        ling_kernel_messenger_start()
 
         // Session loop: log in, run the desktop until "Log Out" is picked
         // from the Power menu, then come back here to re-authenticate. On

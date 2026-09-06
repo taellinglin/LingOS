@@ -148,37 +148,74 @@ bind start = do {
         draw_status("Network", 6, "Setting up network...")
         bind net_ok = installer_net_attempt()
         if net_ok == 1 {
-            draw_status("Network", 6, "Adapter found, link up -- TCP/HTTP stack available (lingfu sync).")
-
-            // SSH opt-in, stored honestly: LingOS has no in-kernel SSH
-            // service yet (it needs the TCP stack that just landed PLUS a
-            // no_std crypto port -- packages/README.md step 5), so this
-            // writes a real config flag the future service will read at
-            // boot, described as exactly that -- not a toggle pretending
-            // a daemon exists today.
-            bind ssh_ans = draw_prompt_and_read("Network", 6, "Request the SSH service once it ships? (yes/no):")
-            if ssh_ans == "yes" {
-                ling_kernel_fs_write("/ssh_requested", "yes")
-                draw_status("Network", 6, "Noted: SSH requested (stored in /ssh_requested; service is roadmap).")
-            }
+            draw_status("Network", 6, "Adapter found, link up -- package registry + SSH available.")
         } else {
             draw_status("Network", 6, "No adapter found -- continuing offline.")
         }
 
-        // No real package catalog ships by default (no network registry
-        // exists yet -- see packages/README.md's roadmap); this offers to
-        // install one .lpkg blob already present in catalog/ on the
-        // install media, the same honest "install a file you already
-        // have" this whole package system is built on. Skipped entirely
-        // without a NIC, per "without network we should just install the
-        // base system."
+        // SSH server: a real service now (drivers::services). Enabling it here
+        // writes /services on the target -- the installed system starts sshd at
+        // boot, and (since /services then exists) first boot won't re-ask.
+        bind ssh_ans = draw_prompt_and_read("Network", 6, "Start the SSH server at boot? (yes/no):")
+        if ssh_ans == "yes" {
+            installer_set_ssh(1)
+            draw_status("Network", 6, "SSH server enabled at boot.")
+        } else {
+            installer_set_ssh(0)
+            draw_status("Network", 6, "SSH server left disabled (enable later in Settings).")
+        }
+
+        // Package sets: curated ling-* bundles pulled from the public registry
+        // (fu.ling-lang.org) into the target filesystem. Needs a NIC; without
+        // one we install the base system only.
         if net_ok == 1 {
-            bind pick = draw_prompt_and_read("Packages", 7, "Package to install now from catalog/ (blank to skip):")
-            bind pick_ok = installer_install_package(pick)
-            if pick_ok == 1 {
-                draw_status("Packages", 7, "Package installed.")
-            } else if pick_ok == 0 {
-                draw_status("Packages", 7, "Package install failed (not found in catalog/).")
+            draw_screen_frame("Packages", 7)
+            ling_kernel_fb_draw_str(ling_kernel_ui_x(36), ling_kernel_ui_y(112), "Choose a package set to install now:", color_text(), color_panel())
+            ling_kernel_fb_draw_str(ling_kernel_ui_x(52), ling_kernel_ui_y(140), "1  None     - base system only", color_text(), color_panel())
+            ling_kernel_fb_draw_str(ling_kernel_ui_x(52), ling_kernel_ui_y(160), "2  Minimal  - ling-core", color_text(), color_panel())
+            ling_kernel_fb_draw_str(ling_kernel_ui_x(52), ling_kernel_ui_y(180), "3  Game     - ling-core, ling-game, ling-graphics, ling-audio", color_text(), color_panel())
+            ling_kernel_fb_draw_str(ling_kernel_ui_x(52), ling_kernel_ui_y(200), "4  Crypto   - ling-core, ling-crypto", color_text(), color_panel())
+            ling_kernel_fb_draw_str(ling_kernel_ui_x(52), ling_kernel_ui_y(220), "5  AI       - ling-core, ling-ai", color_text(), color_panel())
+            ling_kernel_fb_draw_str(ling_kernel_ui_x(52), ling_kernel_ui_y(240), "6  Web      - ling-core, ling-http, ling-graphics", color_text(), color_panel())
+            ling_kernel_fb_draw_str(ling_kernel_ui_x(52), ling_kernel_ui_y(260), "7  Custom   - type one package name", color_text(), color_panel())
+            ling_kernel_fb_present()
+            bind pset = draw_prompt_and_read("Packages", 7, "Package set (1-7):")
+            if pset == "7" {
+                bind cname = draw_prompt_and_read("Packages", 7, "Package name from the registry (blank to skip):")
+                if len(cname) != 0 {
+                    draw_status("Packages", 7, "Installing from the registry (this can take a moment)...")
+                    installer_install_from_registry(cname)
+                    draw_status("Packages", 7, "Package install attempted -- see console for detail.")
+                }
+            } else if pset == "2" {
+                draw_status("Packages", 7, "Installing Minimal (ling-core) from the registry...")
+                installer_install_from_registry("ling-core")
+                draw_status("Packages", 7, "Package set installed.")
+            } else if pset == "3" {
+                draw_status("Packages", 7, "Installing Game set from the registry (this can take a minute)...")
+                installer_install_from_registry("ling-core")
+                installer_install_from_registry("ling-game")
+                installer_install_from_registry("ling-graphics")
+                installer_install_from_registry("ling-audio")
+                draw_status("Packages", 7, "Package set installed.")
+            } else if pset == "4" {
+                draw_status("Packages", 7, "Installing Crypto set from the registry...")
+                installer_install_from_registry("ling-core")
+                installer_install_from_registry("ling-crypto")
+                draw_status("Packages", 7, "Package set installed.")
+            } else if pset == "5" {
+                draw_status("Packages", 7, "Installing AI set from the registry...")
+                installer_install_from_registry("ling-core")
+                installer_install_from_registry("ling-ai")
+                draw_status("Packages", 7, "Package set installed.")
+            } else if pset == "6" {
+                draw_status("Packages", 7, "Installing Web set from the registry...")
+                installer_install_from_registry("ling-core")
+                installer_install_from_registry("ling-http")
+                installer_install_from_registry("ling-graphics")
+                draw_status("Packages", 7, "Package set installed.")
+            } else {
+                draw_status("Packages", 7, "No packages selected -- installing the base system only.")
             }
         } else {
             draw_status("Packages", 7, "No network adapter: installing the base system only.")
