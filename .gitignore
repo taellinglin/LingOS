@@ -26,6 +26,11 @@ live/.isoroot*/
 # should end up living.
 .moon-salt-recovery/
 
+# Oversized tensormap package audio (x.wav ~174MB, y.wav ~98MB) -- these blow
+# past GitHub's 100MB hard limit and were purged from history. Keep them local
+# only; regenerate them, or use Git LFS if they ever need to live in the repo.
+packages/tensormap/*.wav
+
 # Editor/OS cruft.
 .DS_Store
 Thumbs.db
