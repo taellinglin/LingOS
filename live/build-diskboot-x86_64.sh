@@ -62,7 +62,20 @@ if [ "$BSS_EXTRA" -lt 0 ]; then
 fi
 FILE_SIZE_SECTORS=$(( (FLAT_SIZE + 511) / 512 ))
 
-echo "    entry=$ENTRY  flat_size=$FLAT_SIZE  mem_end=$MEM_END  bss_extra=$BSS_EXTRA  sectors=$FILE_SIZE_SECTORS"
+# The kernel image loads contiguously from KERNEL_START_LBA (18); the lingfs
+# volume begins at LINGFS_BASE_LBA. If the kernel spills into that region the
+# two overlap on disk and installs corrupt each other's data (this once wiped
+# user accounts). Keep this value in sync with objects.rs::LINGFS_BASE_LBA.
+KERNEL_START_LBA=18
+LINGFS_BASE_LBA=32768
+KERNEL_END_LBA=$(( KERNEL_START_LBA + FILE_SIZE_SECTORS ))
+if [ "$KERNEL_END_LBA" -ge "$LINGFS_BASE_LBA" ]; then
+    echo "error: kernel image ends at LBA $KERNEL_END_LBA but lingfs starts at $LINGFS_BASE_LBA -- they OVERLAP." >&2
+    echo "       Shrink the kernel (embedded assets?) or raise LINGFS_BASE_LBA in objects.rs + here." >&2
+    exit 1
+fi
+
+echo "    entry=$ENTRY  flat_size=$FLAT_SIZE  mem_end=$MEM_END  bss_extra=$BSS_EXTRA  sectors=$FILE_SIZE_SECTORS  (kernel LBA 18..$KERNEL_END_LBA, lingfs @ $LINGFS_BASE_LBA)"
 
 echo "==> building header sector"
 python3 "$BOOT_DIR/pack_header.py" "$FILE_SIZE_SECTORS" "$ENTRY" "$BSS_EXTRA" "$WORK_DIR/header.bin"

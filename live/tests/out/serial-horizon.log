@@ -1,24 +1,25 @@
 ling-kernel initialized
 timer: calibrate start
 timer: gate set, polling
-timer: PIT poll done after 15360 spins
-timer: TSC_PER_US=640
+timer: PIT poll done after 0 spins
+timer: TSC_PER_US=7
 interrupts enabled (IDT+PIC, 100Hz heartbeat)
-mm: 230044 KiB free (frame allocator)
+mm: 220844 KiB free (frame allocator)
 paging enabled (NX, W^X kernel image)
 syscall/sysret enabled (ring-3 processes ready)
 wm: entering interactive loop
 net: MAC=52:54:00:12:34:56 link_up=1
-net: DHCP unavailable, using static SLIRP fallback
+net: no DHCP -- static ip=10.0.2.96
 services: sshd off (enable with 'services enable ssh')
+messenger: background listener online (chat port 41338)
 wm: mouse bytes=0x00000000
 wm: last=0x00000000
 wm: 8042=0x0000001C
 wm: mx=0x00000000
-wm: mouse bytes=0x00000012
+wm: mouse bytes=0x00000009
 wm: last=0x00000000
 wm: 8042=0x0000001C
-wm: mx=0x0000006E
+wm: mx=0x0000002A
 wm: mouse bytes=0x00000012
 wm: last=0x00000000
 wm: 8042=0x0000001C

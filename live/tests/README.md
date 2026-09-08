@@ -19,6 +19,7 @@ Run under WSL Arch (qemu, ffmpeg, python3) after building `dist/`:
 | `shot-audio.sh` | boot jingle's pentatonic notes present in the recorded WAV (Goertzel) |
 | `shot-installed-boot.sh` | raw-disk boot -> VBE mode -> greeter -> real login -> desktop |
 | `shot-lingfu.sh` | catalog sync + package download/install over real TCP/HTTP (`repo/` served by python) |
+| `shot-horizon.sh` | horizon DOM/CSS/canvas layout; `fetch_raw` follows a 302 for the page *and* its `<img>`, PNG decodes and blits |
 
 Conventions and gotchas (learned the hard way):
 - HMP `mouse_move` uses screen convention (positive dy = down).

@@ -116,10 +116,10 @@ fn draw_stepper_dot(idx, current) {
     bind label_y = ling_kernel_ui_y(80)
     if idx <= current {
         ling_kernel_fb_back_fill_circle(cx, cy, r, step_color(idx))
-        ling_kernel_fb_draw_str(label_x, label_y, step_label(idx), step_color(idx), color_bg())
+        ling_kernel_fb_draw_utf8_str(label_x, label_y, ling_kernel_tr(step_label(idx)), step_color(idx), color_bg(), ling_kernel_render_daemon())
     } else {
         ling_kernel_fb_back_fill_circle(cx, cy, r, color_dot_dim())
-        ling_kernel_fb_draw_str(label_x, label_y, step_label(idx), color_dim(), color_bg())
+        ling_kernel_fb_draw_utf8_str(label_x, label_y, ling_kernel_tr(step_label(idx)), color_dim(), color_bg(), ling_kernel_render_daemon())
     }
 }
 
@@ -147,8 +147,8 @@ fn draw_screen_frame(title, step) {
 
     ling_kernel_fb_back_fill_rect(ling_kernel_ui_x(0), ling_kernel_ui_y(0), ling_kernel_ui_len(960), ling_kernel_ui_len(48), color_panel())
     ling_kernel_fb_back_fill_rect(ling_kernel_ui_x(0), ling_kernel_ui_y(47), ling_kernel_ui_len(960), ling_kernel_ui_len(1), color_panel_border())
-    ling_kernel_fb_draw_str(ling_kernel_ui_x(20), ling_kernel_ui_y(16), title, color_text(), color_panel())
-    ling_kernel_fb_draw_str(ling_kernel_ui_x(800), ling_kernel_ui_y(16), step_label(step), step_color(step), color_panel())
+    ling_kernel_fb_draw_utf8_str(ling_kernel_ui_x(20), ling_kernel_ui_y(16), ling_kernel_tr(title), color_text(), color_panel(), ling_kernel_render_daemon())
+    ling_kernel_fb_draw_utf8_str(ling_kernel_ui_x(800), ling_kernel_ui_y(16), ling_kernel_tr(step_label(step)), step_color(step), color_panel(), ling_kernel_render_daemon())
 
     draw_stepper(step)
 
@@ -224,7 +224,7 @@ fn draw_locale_picker(title, step) {
     draw_locale_row(6, 288, cursor)
     draw_locale_row(7, 314, cursor)
     draw_locale_row(8, 340, cursor)
-    ling_kernel_fb_draw_str(ling_kernel_ui_x(36), ling_kernel_ui_y(380), "up/down to move, enter to select", color_dim(), color_panel())
+    ling_kernel_fb_draw_utf8_str(ling_kernel_ui_x(36), ling_kernel_ui_y(380), ling_kernel_tr("up/down to move, enter to select"), color_dim(), color_panel(), ling_kernel_render_daemon())
     ling_kernel_fb_present()
 }
 
@@ -294,7 +294,7 @@ fn draw_kbdlayout_picker(title, step) {
     draw_kbdlayout_row(2, 204, cursor)
     draw_kbdlayout_row(3, 240, cursor)
     draw_kbdlayout_row(4, 276, cursor)
-    ling_kernel_fb_draw_str(ling_kernel_ui_x(36), ling_kernel_ui_y(320), "up/down to move, enter to select", color_dim(), color_panel())
+    ling_kernel_fb_draw_utf8_str(ling_kernel_ui_x(36), ling_kernel_ui_y(320), ling_kernel_tr("up/down to move, enter to select"), color_dim(), color_panel(), ling_kernel_render_daemon())
     ling_kernel_fb_present()
 }
 

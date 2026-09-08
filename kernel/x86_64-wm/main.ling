@@ -88,7 +88,9 @@ fn draw_dock_slot(i) {
         ling_kernel_fb_back_fill_rrect(dx - 3, dy - 3, sz + 6, sz + 6, 12, ling_kernel_theme_color(10))
     }
     ling_kernel_fb_back_fill_rrect(dx, dy, sz, sz, 10, ling_kernel_theme_color(1))
-    ling_kernel_fb_draw_str(dx + sz / 2 - 4, dy + sz / 2 - 8, ling_kernel_wm_dock_letter(i), ling_kernel_theme_color(3), ling_kernel_theme_color(1))
+    // Kernel-side centered draw: the abbreviation is localized (CJK glyphs in
+    // Chinese/Korean) and needs pixel-width centering .ling can't do itself.
+    ling_kernel_wm_draw_dock_glyph(i, dx, dy, sz)
     if running == 1 {
         ling_kernel_fb_back_fill_circle(dx + sz / 2, dy + sz + 7, 3, ling_kernel_theme_color(10))
     }
@@ -122,8 +124,13 @@ bind start = do {
         // persistence is still roadmap).
         ling_kernel_fs_mount()
         if disk_boot == 1 {
-            ling_kernel_locale_reset()
-            ling_kernel_locale_confirm_cursor()
+            // Apply the language chosen during install (persisted to /locale) so
+            // the greeter + desktop come up in it. Fall back to the default only
+            // if nothing was saved.
+            if ling_kernel_locale_restore() == 0 {
+                ling_kernel_locale_reset()
+                ling_kernel_locale_confirm_cursor()
+            }
         } else {
             run_locale_picker("Welcome to LingOS -- choose a language / locale", 1)
             ling_kernel_user_create("live", "live", "Live", "User", "", "", "users")
@@ -165,6 +172,15 @@ bind start = do {
             ling_kernel_wm_open(0)
 
             while ling_kernel_wm_logout_requested() == 0 {
+            // Resolution can change live (Settings -> Display -> Apply/Enter on
+            // a DISPI adapter), so re-read the framebuffer size every frame and
+            // keep the mouse bounds in sync -- don't trust the size captured at
+            // boot. locale_idx is re-read too so a language change applies to
+            // the top bar immediately, not only after re-login.
+            bind fb_w = ling_kernel_fb_width()
+            bind fb_h = ling_kernel_fb_height()
+            bind locale_idx = ling_kernel_locale_selected()
+            ling_kernel_mouse_set_bounds(fb_w, fb_h)
             ling_kernel_mouse_poll()
             bind mx = ling_kernel_mouse_x()
             bind my = ling_kernel_mouse_y()

@@ -14,8 +14,8 @@
 ;   LBA 0        this file (512 bytes)
 ;   LBA 1-16     stage2 (8KiB)
 ;   LBA 17       kernel header (magic/size, see stage2.asm)
-;   LBA 18-8191  flattened kernel image (~4MiB budget)
-;   LBA 8192+    lingfs volume
+;   LBA 18-32767 flattened kernel image (~16MiB budget)
+;   LBA 32768+   lingfs volume
 [bits 16]
 [org 0x7C00]
 

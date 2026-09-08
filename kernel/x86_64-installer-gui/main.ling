@@ -47,13 +47,15 @@ use "../../apps/installer/main"
 
 fn draw_status(title, step, text) {
     draw_screen_frame(title, step)
-    ling_kernel_fb_draw_str(ling_kernel_ui_x(36), ling_kernel_ui_y(132), text, color_text(), color_panel())
+    // ling_kernel_tr translates to the chosen language (echoes English if there's
+    // no entry); utf8 draw so CJK/Thai render. Daemon reskin for Ling Country.
+    ling_kernel_fb_draw_utf8_str(ling_kernel_ui_x(36), ling_kernel_ui_y(132), ling_kernel_tr(text), color_text(), color_panel(), ling_kernel_render_daemon())
     ling_kernel_fb_present()
 }
 
 fn draw_prompt_and_read(title, step, label) {
     draw_screen_frame(title, step)
-    ling_kernel_fb_draw_str(ling_kernel_ui_x(36), ling_kernel_ui_y(132), label, color_text(), color_panel())
+    ling_kernel_fb_draw_utf8_str(ling_kernel_ui_x(36), ling_kernel_ui_y(132), ling_kernel_tr(label), color_text(), color_panel(), ling_kernel_render_daemon())
     ling_kernel_fb_present()
     return ling_kernel_gui_read_line(ling_kernel_ui_x(36), ling_kernel_ui_y(162), color_text(), color_panel())
 }
@@ -62,9 +64,9 @@ fn draw_prompt_and_read(title, step, label) {
 // itself -- see its doc) until the two entries match.
 fn draw_prompt_and_read_password(title, step, label) {
     draw_screen_frame(title, step)
-    ling_kernel_fb_draw_str(ling_kernel_ui_x(36), ling_kernel_ui_y(132), label, color_text(), color_panel())
-    ling_kernel_fb_draw_str(ling_kernel_ui_x(36), ling_kernel_ui_y(158), "Password:", color_dim(), color_panel())
-    ling_kernel_fb_draw_str(ling_kernel_ui_x(36), ling_kernel_ui_y(208), "Confirm password:", color_dim(), color_panel())
+    ling_kernel_fb_draw_utf8_str(ling_kernel_ui_x(36), ling_kernel_ui_y(132), ling_kernel_tr(label), color_text(), color_panel(), ling_kernel_render_daemon())
+    ling_kernel_fb_draw_utf8_str(ling_kernel_ui_x(36), ling_kernel_ui_y(158), ling_kernel_tr("Password:"), color_dim(), color_panel(), ling_kernel_render_daemon())
+    ling_kernel_fb_draw_utf8_str(ling_kernel_ui_x(36), ling_kernel_ui_y(208), ling_kernel_tr("Confirm password:"), color_dim(), color_panel(), ling_kernel_render_daemon())
     ling_kernel_fb_present()
     return ling_kernel_gui_read_password_confirmed(
         ling_kernel_ui_x(36), ling_kernel_ui_y(178), ling_kernel_ui_y(228), ling_kernel_ui_y(258),
@@ -80,6 +82,10 @@ bind start = do {
     if avail == 0 {
         ling_kernel_vga_write_str("no framebuffer -- the GUI installer needs graphics mode (use Install [text] instead)\n")
     } else {
+        // Go 1920x1080 if the adapter supports it (DISPI live mode-set), so the
+        // installer looks crisp on a large panel; a no-op on non-DISPI cards,
+        // where GRUB's negotiated mode stays and ui_scale letterboxes to it.
+        ling_kernel_fb_try_mode(1920, 1080)
         bind fb_w = ling_kernel_fb_width()
         bind fb_h = ling_kernel_fb_height()
         ling_kernel_mouse_set_bounds(fb_w, fb_h)
@@ -91,6 +97,12 @@ bind start = do {
 
         run_locale_picker("Choose your locale and timezone", 2)
         bind locale_idx = ling_kernel_locale_selected()
+
+        // The two pickers each reset+set the shared locale selection, so it now
+        // holds the timezone pick. Re-select the step-1 LANGUAGE so every later
+        // step (Disk..Finish) renders via ling_kernel_tr in the chosen language.
+        // (installer_save_locale below still persists the timezone via locale_idx.)
+        ling_kernel_locale_select(lang_idx)
 
         // Disk step: name the real target device and require the word
         // ERASE typed in full before touching it -- an install that wipes
