@@ -43,6 +43,14 @@ KERNEL_HEADER_MAGIC equ 0x474E4B4C ; keep in sync with pack_header.py's MAGIC
 start:
     mov dl, [BOOT_DRIVE_ADDR]
 
+    ; --- Dual-boot: if the MBR carries a valid, active, non-LingOS bootable
+    ; partition (e.g. a Windows/Linux install this LingOS was installed
+    ; alongside), offer a short boot menu and chainload it on request. A raw
+    ; whole-disk LingOS install writes an all-zero partition table here
+    ; (stage1 zero-pads 0x1BE..0x1FD), so this is completely inert on a
+    ; single-boot disk -- it falls straight through to booting LingOS. ---
+    call maybe_boot_menu
+
     ; --- Enable A20 (BIOS call, then fast-A20 port as a harmless backup) ---
     mov ax, 0x2401
     int 0x15
@@ -280,6 +288,136 @@ vbe_mode_buf: times 256 db 0
 display_modes:
     dw 0x0118, 0x0115, 0x011B, 0x0111, 0x0117
 DISPLAY_MODE_COUNT equ 5
+
+; --- Dual-boot menu + chainloader (real mode) ------------------------------
+; Reads the MBR partition table; if an active partition with a known bootable
+; type exists, prints a menu and, on '2', chainloads that partition's boot
+; sector the standard way (VBR -> 0x7C00, DL = drive, DS:SI -> the partition
+; entry). '1'/Enter/timeout falls through to booting LingOS. Returns (to keep
+; booting LingOS) when there's nothing to offer or the user declines.
+maybe_boot_menu:
+    pusha
+    ; Read the MBR (LBA 0) into mbr_buf.
+    mov si, mbr_dap
+    mov ah, 0x42
+    mov dl, [BOOT_DRIVE_ADDR]
+    int 0x13
+    jc .done                       ; unreadable -> just boot LingOS
+    ; Scan the 4 primary partition entries for an active, bootable one.
+    mov si, mbr_buf + 0x1BE
+    mov cx, 4
+.scan:
+    mov al, [si]                   ; boot flag: must be 0x80 (active)
+    cmp al, 0x80
+    jne .next
+    mov al, [si + 4]               ; partition type: must be whitelisted
+    call is_bootable_type
+    jc .found
+.next:
+    add si, 16
+    loop .scan
+    jmp .done                      ; no other OS -> boot LingOS
+.found:
+    mov [chain_entry], si
+    mov si, menu_msg
+    call print_str
+    ; ~5 second countdown using the BIOS tick counter at 0040:006C (ds=0).
+    mov eax, [0x046C]
+    add eax, 91                    ; 18.2 ticks/s * 5s
+    mov [deadline_ticks], eax
+.wait:
+    mov ah, 0x01                   ; any key pressed?
+    int 0x16
+    jz .no_key
+    xor ah, ah
+    int 0x16                       ; consume it
+    cmp al, '2'
+    je .chain
+    jmp .done                      ; any other key -> boot LingOS
+.no_key:
+    mov eax, [0x046C]
+    cmp eax, [deadline_ticks]
+    jb .wait
+    jmp .done                      ; timeout -> boot LingOS
+.chain:
+    mov si, [chain_entry]
+    mov eax, [si + 8]              ; partition start LBA (LBA32 in the entry)
+    mov [vbr_lba], eax
+    mov dword [vbr_lba + 4], 0
+    mov si, vbr_dap
+    mov ah, 0x42
+    mov dl, [BOOT_DRIVE_ADDR]
+    int 0x13
+    jc .done                       ; VBR read failed -> boot LingOS
+    ; Hand off exactly like a real MBR: DL = drive, DS:SI -> partition entry.
+    mov dl, [BOOT_DRIVE_ADDR]
+    mov si, [chain_entry]
+    jmp 0x0000:0x7C00
+.done:
+    popa
+    ret
+
+; CF=1 if AL is a partition type we'll offer to chainload (common bootable
+; filesystems: FAT12/16/32, NTFS/exFAT, Linux).
+is_bootable_type:
+    cmp al, 0x07                   ; NTFS / exFAT / HPFS
+    je .yes
+    cmp al, 0x0B                   ; FAT32 (CHS)
+    je .yes
+    cmp al, 0x0C                   ; FAT32 (LBA)
+    je .yes
+    cmp al, 0x06                   ; FAT16
+    je .yes
+    cmp al, 0x0E                   ; FAT16 (LBA)
+    je .yes
+    cmp al, 0x83                   ; Linux
+    je .yes
+    cmp al, 0x01                   ; FAT12
+    je .yes
+    clc
+    ret
+.yes:
+    stc
+    ret
+
+; Print a NUL-terminated string via BIOS teletype (ds:si).
+print_str:
+    lodsb
+    or al, al
+    jz .done
+    mov ah, 0x0E
+    mov bx, 0x0007
+    int 0x10
+    jmp print_str
+.done:
+    ret
+
+menu_msg:
+    db 13, 10, "LingOS boot menu:", 13, 10
+    db "  1) LingOS  (default)", 13, 10
+    db "  2) other OS on this disk", 13, 10
+    db "booting LingOS shortly -- press 2 for the other OS...", 13, 10, 0
+
+align 4
+mbr_dap:
+    db 0x10
+    db 0
+    dw 1
+    dw mbr_buf
+    dw 0
+    dq 0
+align 4
+vbr_dap:
+    db 0x10
+    db 0
+    dw 1
+    dw 0x7C00
+    dw 0
+vbr_lba: dq 0
+chain_entry: dw 0
+deadline_ticks: dd 0
+align 4
+mbr_buf: times 512 db 0
 
 align 8
 gdt_start:
