@@ -104,6 +104,12 @@ bind start = do {
     if avail == 0 {
         ling_kernel_vga_write_str("no framebuffer -- the Live desktop needs graphics mode\n")
     } else {
+        // Mount the FS, then bring the display up at the last-applied resolution
+        // (or max native if never set) BEFORE anything draws -- so the greeter/
+        // login matches what the desktop last used, not GRUB's boot mode. Then
+        // the fb_w/fb_h bound below reflect the real, final resolution.
+        ling_kernel_fs_mount()
+        ling_kernel_display_boot_apply()
         bind fb_w = ling_kernel_fb_width()
         bind fb_h = ling_kernel_fb_height()
         ling_kernel_mouse_set_bounds(fb_w, fb_h)
@@ -121,8 +127,8 @@ bind start = do {
         // One-time setup: mount the filesystem (accounts/settings live in
         // it); for Live, pick a locale and create the auto-login account
         // once. For an installed disk, default the locale (install-time
-        // persistence is still roadmap).
-        ling_kernel_fs_mount()
+        // persistence is still roadmap). (FS is already mounted above so the
+        // display mode could be restored before the greeter.)
         if disk_boot == 1 {
             // Apply the language chosen during install (persisted to /locale) so
             // the greeter + desktop come up in it. Fall back to the default only

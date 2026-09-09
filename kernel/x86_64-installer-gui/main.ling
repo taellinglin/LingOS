@@ -110,14 +110,36 @@ bind start = do {
         // typed parks the installer (reboot to start over). The erase
         // itself is the honest quick-erase (boot sectors + filesystem
         // headers zeroed; see ling_kernel_disk_erase_quick's doc).
-        draw_screen_frame("Choose the installation disk", 3)
-        ling_kernel_fb_draw_str(ling_kernel_ui_x(36), ling_kernel_ui_y(132), "Detected disk (the only one this kernel drives today):", color_text(), color_panel())
-        ling_kernel_fb_back_fill_rrect(ling_kernel_ui_x(36), ling_kernel_ui_y(158), ling_kernel_ui_len(400), ling_kernel_ui_len(30), 6, step_color(3))
-        ling_kernel_fb_back_fill_rrect(ling_kernel_ui_x(38), ling_kernel_ui_y(160), ling_kernel_ui_len(396), ling_kernel_ui_len(26), 5, color_panel())
-        ling_kernel_fb_draw_str(ling_kernel_ui_x(52), ling_kernel_ui_y(168), ling_kernel_disk_name(), color_text(), color_panel())
-        ling_kernel_fb_draw_str(ling_kernel_ui_x(36), ling_kernel_ui_y(210), "Installing ERASES this disk: bootloader, filesystem, everything.", color_error(), color_panel())
+        // One screen: the target device, WHAT'S ALREADY ON IT (partition
+        // table -- so a multiboot user sees any Windows/Linux at risk), the
+        // erase warning, and the ERASE confirmation, all together.
+        draw_screen_frame("Confirm erase", 3)
+        ling_kernel_fb_draw_utf8_str(ling_kernel_ui_x(36), ling_kernel_ui_y(118), ling_kernel_tr("Detected disk (the only one this kernel drives today):"), color_text(), color_panel(), ling_kernel_render_daemon())
+        ling_kernel_fb_back_fill_rrect(ling_kernel_ui_x(36), ling_kernel_ui_y(142), ling_kernel_ui_len(400), ling_kernel_ui_len(28), 6, step_color(3))
+        ling_kernel_fb_back_fill_rrect(ling_kernel_ui_x(38), ling_kernel_ui_y(144), ling_kernel_ui_len(396), ling_kernel_ui_len(24), 5, color_panel())
+        ling_kernel_fb_draw_str(ling_kernel_ui_x(52), ling_kernel_ui_y(150), ling_kernel_disk_name(), color_text(), color_panel())
+        bind pc = ling_kernel_part_count()
+        if pc == 0 {
+            ling_kernel_fb_draw_str(ling_kernel_ui_x(36), ling_kernel_ui_y(190), "Disk is blank -- LingOS will use the whole disk.", color_dim(), color_panel())
+        } else {
+            ling_kernel_fb_draw_str(ling_kernel_ui_x(36), ling_kernel_ui_y(190), "This disk already contains (erasing removes ALL of it):", color_text(), color_panel())
+            ling_kernel_fb_draw_str(ling_kernel_ui_x(52), ling_kernel_ui_y(214), ling_kernel_part_label(0), color_text(), color_panel())
+            if pc > 1 {
+                ling_kernel_fb_draw_str(ling_kernel_ui_x(52), ling_kernel_ui_y(234), ling_kernel_part_label(1), color_text(), color_panel())
+            }
+            if pc > 2 {
+                ling_kernel_fb_draw_str(ling_kernel_ui_x(52), ling_kernel_ui_y(254), ling_kernel_part_label(2), color_text(), color_panel())
+            }
+            if pc > 3 {
+                ling_kernel_fb_draw_str(ling_kernel_ui_x(52), ling_kernel_ui_y(274), ling_kernel_part_label(3), color_text(), color_panel())
+            }
+            ling_kernel_fb_draw_str(ling_kernel_ui_x(36), ling_kernel_ui_y(302), "To keep another OS, install to a machine with free space; the boot", color_dim(), color_panel())
+            ling_kernel_fb_draw_str(ling_kernel_ui_x(36), ling_kernel_ui_y(320), "menu already offers any bootable partition it finds.", color_dim(), color_panel())
+        }
+        ling_kernel_fb_draw_utf8_str(ling_kernel_ui_x(36), ling_kernel_ui_y(350), ling_kernel_tr("Installing ERASES this disk: bootloader, filesystem, everything."), color_error(), color_panel(), ling_kernel_render_daemon())
+        ling_kernel_fb_draw_utf8_str(ling_kernel_ui_x(36), ling_kernel_ui_y(384), ling_kernel_tr("Type ERASE (all caps) to wipe this disk and install:"), color_text(), color_panel(), ling_kernel_render_daemon())
         ling_kernel_fb_present()
-        bind confirm = draw_prompt_and_read("Confirm erase", 3, "Type ERASE (all caps) to wipe this disk and install:")
+        bind confirm = ling_kernel_gui_read_line(ling_kernel_ui_x(36), ling_kernel_ui_y(412), color_text(), color_panel())
         if confirm == "ERASE" {
             draw_status("Erasing disk", 3, "Erasing boot sectors and filesystem headers...")
             bind erase_ok = ling_kernel_disk_erase_quick()
