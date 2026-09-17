@@ -3,6 +3,7 @@
 test.html and logo.png directly, and 302-redirects /redirect.html ->
 /test.html and /redir-logo.png -> /logo.png so the guest's fetch_raw has
 something real to follow."""
+
 import http.server
 
 REDIRECTS = {

@@ -13,6 +13,7 @@ Prints two lines: "entry=<hex>" and "mem_end=<hex>" (highest vaddr+size
 across every SHF_ALLOC section) -- the caller computes bss_extra as
 mem_end - link_base - flat_file_size.
 """
+
 import struct
 import sys
 

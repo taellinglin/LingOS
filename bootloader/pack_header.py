@@ -12,6 +12,7 @@ reinstall resets it to auto, which is correct.
 Usage: pack_header.py <file_size_sectors> <entry_phys> <bss_extra> <out_path>
 (numbers may be decimal or 0x-prefixed hex)
 """
+
 import struct
 import sys
 
