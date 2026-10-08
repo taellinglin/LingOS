@@ -3,7 +3,10 @@
 // them to the PL011 UART instead of VGA/COM1 underneath.
 bind start = do {
     ling_kernel_init()
-    ling_kernel_vga_write_str("LingOS aarch64 (Raspberry Pi)\n")
-    ling_kernel_vga_write_str("basic kernel booted.\n")
-    asm!("wfi")
+    // Idle loop with a live on-screen uptime clock (polls the generic timer;
+    // proof-of-life on Pi 5, which has no serial and no timer IRQs yet). It
+    // prints the boot lines itself, then never returns. (The boot messages are
+    // kernel-side because a do-block whose final expression is a plain call —
+    // not asm! — drops the preceding intrinsic calls under the current AOT.)
+    ling_kernel_rpi_idle()
 }
