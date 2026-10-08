@@ -1,8 +1,22 @@
 # LingOS Raspberry Pi boot config (goes on the FAT32 boot partition alongside
-# the official RPi firmware blobs — bootcode.bin/start*.elf/fixup*.dat — which
-# this repo does not bundle; fetch them from the Raspberry Pi Foundation's
-# public `firmware` repo to match your board).
+# the official RPi firmware blobs — bootcode.bin/start*.elf/fixup*.dat on Pi
+# 3/4, or just the EEPROM bootloader on Pi 5 — which this repo does not bundle;
+# fetch them from the Raspberry Pi Foundation's public `firmware` repo to match
+# your board).
 arm_64bit=1
 kernel=kernel8.img
+
+# --- Raspberry Pi 5 (BCM2712) bare-metal boot ---------------------------------
+# os_check=0 is REQUIRED on Pi 5. Without it the bootloader assumes a Linux
+# kernel: it loads to 0x200000 (not 0x80000, where our linker.ld entry is),
+# demands a matching device tree (bcm2712-rpi-5-b.dtb), and refuses to boot a
+# kernel that "does not indicate support for Raspberry Pi 5" — exactly the red
+# diagnostic screen. With os_check=0 the firmware treats kernel8.img as a raw
+# AArch64 bare-metal image, loads it at 0x80000, and skips both checks.
+os_check=0
+# device_tree= (empty) disables Device Tree loading outright — this kernel is
+# bare-metal and parses no DTB. Harmless on Pi 3/4, needed cleanliness on Pi 5.
+device_tree=
+
 enable_uart=1
 uart_2ndstage=1
