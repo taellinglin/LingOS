@@ -20,3 +20,12 @@ device_tree=
 
 enable_uart=1
 uart_2ndstage=1
+
+# pciex4_reset=0 keeps the firmware's PCIe x4 root-complex bring-up in place
+# instead of resetting the link just before the kernel loads. The Pi 5's USB,
+# Ethernet and GPIO all live on the RP1 south-bridge behind that PCIe link, so
+# without this the RP1 register window (CPU phys 0x1F_0000_0000) is dead and a
+# bare-metal kernel would have to re-run the whole brcmstb RC bring-up itself.
+# With it, the kernel reaches RP1 directly (see arch/aarch64/rp1.rs; the serial
+# console's `usb` command probes it). Pi 5 only; ignored on Pi 3/4.
+pciex4_reset=0
