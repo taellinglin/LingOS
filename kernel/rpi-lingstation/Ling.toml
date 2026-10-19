@@ -6,6 +6,9 @@ name = "lingos-lingstation-rpi"
 version = "0.1.0"
 entry = "../../../LingStationX/ling/main.ling"
 kind = "kernel"
+# LingOS boots as usual (console, USB, setup) and runs LingStation as a built-in
+# app: autostarted after boot, `lingstation` at the console, Ctrl+Q to return.
+kernel_app = "lingstation"
 # Files the app reads, baked into the kernel image until LingOS can read the SD
 # card. Names are relative to the app folder, so its own paths find them.
 embed_root = "../../../LingStationX"
