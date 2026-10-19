@@ -1,8 +1,12 @@
 # LingStationX running natively on LingOS (Raspberry Pi). The entry is the real
 # app in ../LingStationX — not a copy — compiled to aarch64 by the kernel AOT and
-# linked against the in-kernel Ling runtime (ling-kernel's `lingrt`).
+# linked against the in-kernel Ling runtime (ling-kernel's `lingrt`/`lingapp`).
 [project]
 name = "lingos-lingstation-rpi"
 version = "0.1.0"
 entry = "../../../LingStationX/ling/main.ling"
 kind = "kernel"
+# Files the app reads, baked into the kernel image until LingOS can read the SD
+# card. Names are relative to the app folder, so its own paths find them.
+embed_root = "../../../LingStationX"
+includes = ["assets/font.ttf", "assets/fonts/Daemon.otf", "assets/fonts/Chesilin.ttf"]
