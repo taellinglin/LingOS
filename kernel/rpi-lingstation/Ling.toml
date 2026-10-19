@@ -1,0 +1,8 @@
+# LingStationX running natively on LingOS (Raspberry Pi). The entry is the real
+# app in ../LingStationX — not a copy — compiled to aarch64 by the kernel AOT and
+# linked against the in-kernel Ling runtime (ling-kernel's `lingrt`).
+[project]
+name = "lingos-lingstation-rpi"
+version = "0.1.0"
+entry = "../../../LingStationX/ling/main.ling"
+kind = "kernel"
