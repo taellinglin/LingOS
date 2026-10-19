@@ -4,3 +4,9 @@ version = "0.1.0"
 entry = "main.ling"
 kind = "kernel"
 graphics = true
+# LingStationX (LingOS Edition) ships with the desktop: the real app from
+# ../LingStationX, compiled into this image as a built-in app (Applications menu
+# -> Sound & Video). Its files are baked in, named relative to the app folder.
+bundle_app = "lingstation:../../../LingStationX/ling/main.ling"
+embed_root = "../../../LingStationX"
+includes = ["assets/font.ttf", "assets/fonts/Daemon.otf", "assets/fonts/Chesilin.ttf"]

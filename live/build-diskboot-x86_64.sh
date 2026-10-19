@@ -67,7 +67,7 @@ FILE_SIZE_SECTORS=$(( (FLAT_SIZE + 511) / 512 ))
 # two overlap on disk and installs corrupt each other's data (this once wiped
 # user accounts). Keep this value in sync with objects.rs::LINGFS_BASE_LBA.
 KERNEL_START_LBA=18
-LINGFS_BASE_LBA=32768
+LINGFS_BASE_LBA=65536
 KERNEL_END_LBA=$(( KERNEL_START_LBA + FILE_SIZE_SECTORS ))
 if [ "$KERNEL_END_LBA" -ge "$LINGFS_BASE_LBA" ]; then
     echo "error: kernel image ends at LBA $KERNEL_END_LBA but lingfs starts at $LINGFS_BASE_LBA -- they OVERLAP." >&2

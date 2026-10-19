@@ -36,6 +36,11 @@ KERNEL_LINK_BASE equ 0x100000 ; must match KERNEL_LINKER_SCRIPT's `. = 1M;`
 LFB_INFO_ADDR    equ 0x6000   ; VBE handoff block (keep in sync with
                               ; framebuffer.rs's disk-boot fallback)
 LFB_INFO_MAGIC   equ 0x4942464C ; "LFBI" little-endian
+E820_INFO_ADDR   equ 0x5000   ; BIOS memory-map handoff (keep in sync with
+                              ; meminfo.rs's disk-boot path): magic, count,
+                              ; then `count` raw 24-byte E820 entries
+E820_INFO_MAGIC  equ 0x30323845 ; "E820" little-endian
+E820_MAX         equ 64
 CODE_SEL         equ 0x08
 DATA_SEL         equ 0x10
 KERNEL_HEADER_MAGIC equ 0x474E4B4C ; keep in sync with pack_header.py's MAGIC
@@ -81,6 +86,11 @@ start:
     mov ds, bx
     mov es, bx
     sti
+
+    ; --- BIOS memory map (INT 15h E820) for the kernel: without Multiboot2
+    ; info it otherwise only knows a conservative fixed range, too small once
+    ; the desktop bundles big apps. ---
+    call read_e820
 
     ; --- Read the on-disk kernel header (1 sector, fixed LBA) FIRST, so
     ; the display-mode preference byte (offset 16) is available before the
@@ -278,6 +288,40 @@ vbe_try_mode: dw 0
 
 align 4
 header_buf: times 512 db 0
+
+; Collect the E820 map into E820_INFO_ADDR. The magic is written last, and
+; only if at least one entry came back, so a BIOS without E820 leaves the
+; kernel on its fallback range. Real mode, ds=es=0. Preserves every register
+; (EDX must carry "SMAP" for the call, but DL is the boot drive the disk
+; reads after this depend on).
+read_e820:
+    pushad
+    mov dword [E820_INFO_ADDR], 0
+    mov dword [E820_INFO_ADDR + 4], 0
+    mov di, E820_INFO_ADDR + 8
+    xor ebx, ebx
+.next:
+    mov eax, 0xE820
+    mov edx, 0x534D4150         ; "SMAP"
+    mov ecx, 24
+    mov dword [es:di + 20], 1   ; ACPI 3.0 "valid" bit, for 20-byte BIOSes
+    int 0x15
+    jc .done
+    cmp eax, 0x534D4150
+    jne .done
+    inc dword [E820_INFO_ADDR + 4]
+    add di, 24
+    cmp dword [E820_INFO_ADDR + 4], E820_MAX
+    jae .done
+    test ebx, ebx
+    jnz .next
+.done:
+    cmp dword [E820_INFO_ADDR + 4], 0
+    je .ret
+    mov dword [E820_INFO_ADDR], E820_INFO_MAGIC
+.ret:
+    popad
+    ret
 align 4
 vbe_mode_buf: times 256 db 0
 
