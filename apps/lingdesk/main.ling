@@ -11,11 +11,11 @@ bind ICON = 64.0
 bind ICON_STEP = 104.0
 
 # Desktop entries: label, kind ("app" = built-in app name, else an action).
-bind ITEM_LABEL = ["LingStationX", "Console", "Settings", "About LingOS"]
-bind ITEM_KIND = ["app:lingstation", "console", "settings", "about"]
-bind ITEM_GLYPH = ["L", ">_", "S", "i"]
-bind ITEM_COLOR = [10833919.0, 5164158.0, 16761676.0, 7107327.0]
-bind MENU_LABEL = ["LingStationX (LingOS Edition)", "Console", "Settings", "About LingOS"]
+bind ITEM_LABEL = ["LingStationX", "Console", "Wi-Fi", "Settings", "About LingOS"]
+bind ITEM_KIND = ["app:lingstation", "console", "console:wifi", "settings", "about"]
+bind ITEM_GLYPH = ["L", ">_", "W", "S", "i"]
+bind ITEM_COLOR = [10833919.0, 5164158.0, 3779327.0, 16761676.0, 7107327.0]
+bind MENU_LABEL = ["LingStationX (LingOS Edition)", "Console", "Wi-Fi (radio probe)", "Settings", "About LingOS"]
 
 fn sel(cond, a, b) {
     if cond { return a }
@@ -257,7 +257,11 @@ fn run_item(i, w, h) {
         return 0.0
     }
     if kind == "console" {
-        os_console()
+        os_console("")
+        return 0.0
+    }
+    if kind == "console:wifi" {
+        os_console("wifi")
         return 0.0
     }
     if kind == "settings" {
