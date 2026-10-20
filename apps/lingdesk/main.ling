@@ -1,0 +1,393 @@
+# LingOS desktop (Raspberry Pi): wallpaper, desktop icons, a taskbar with a
+# start menu, pinned apps and a tray, an About window, and a mouse cursor.
+# It runs on the kernel's app runtime (the same px_*/mouse_*/key_* builtins
+# LingStationX uses), so every app it launches is a full-screen compiled .ling
+# program linked into the same image (`bundle_app` in the kernel's Ling.toml).
+# Mouse and keyboard both work everywhere: Super or Esc opens the start menu,
+# arrows + Enter pick an item, Tab walks the desktop icons.
+
+bind TASK_H = 48.0
+bind ICON = 64.0
+bind ICON_STEP = 104.0
+
+# Desktop entries: label, kind ("app" = built-in app name, else an action).
+bind ITEM_LABEL = ["LingStationX", "Console", "Settings", "About LingOS"]
+bind ITEM_KIND = ["app:lingstation", "console", "settings", "about"]
+bind ITEM_GLYPH = ["L", ">_", "S", "i"]
+bind ITEM_COLOR = [10833919.0, 5164158.0, 16761676.0, 7107327.0]
+bind MENU_LABEL = ["LingStationX (LingOS Edition)", "Console", "Settings", "About LingOS"]
+
+fn sel(cond, a, b) {
+    if cond { return a }
+    return b
+}
+
+fn rgb(r, g, b) {
+    return floor(r) * 65536.0 + floor(g) * 256.0 + floor(b)
+}
+
+fn lerp(a, b, t) {
+    return a + (b - a) * t
+}
+
+fn two(n) {
+    if n < 10.0 { return "0" + n }
+    return "" + n
+}
+
+fn inside(mx, my, x, y, w, h) {
+    return mx >= x && mx < x + w && my >= y && my < y + h
+}
+
+fn text_w(s, size) {
+    return font_width(st_get("font", 0.0), size, s)
+}
+
+fn label(x, y, size, color, s) {
+    px_text(st_get("font", 0.0), x, y, size, color, s)
+}
+
+# ── wallpaper ────────────────────────────────────────────────────────────────
+
+fn wallpaper(w, h) {
+    bind bands = 48.0
+    bind i = 0.0
+    while i < bands {
+        bind t = i / (bands - 1.0)
+        bind y0 = floor(h * i / bands)
+        bind y1 = floor(h * (i + 1.0) / bands)
+        px_rect(0.0, y0, w, y1 - y0 + 1.0, rgb(lerp(20.0, 70.0, t), lerp(16.0, 34.0, t), lerp(44.0, 104.0, t)))
+        bind i = i + 1.0
+    }
+    px_disc(w * 0.72, h * 0.30, h * 0.42, rgb(150.0, 90.0, 255.0), 0.08)
+    px_disc(w * 0.20, h * 0.85, h * 0.35, rgb(60.0, 160.0, 255.0), 0.06)
+    bind wm = "LingOS"
+    bind ws = floor(h * 0.12)
+    label((w - text_w(wm, ws)) / 2.0, h * 0.40, ws, rgb(58.0, 44.0, 96.0), wm)
+}
+
+# ── desktop icons ────────────────────────────────────────────────────────────
+
+fn icon_tile(x, y, size, glyph, color, hot) {
+    if hot { px_rrect(x - 6.0, y - 6.0, size + 12.0, size + 12.0, 14.0, rgb(255.0, 255.0, 255.0), 0.14) }
+    px_rrect(x, y, size, size, size * 0.22, color)
+    px_rrect(x, y, size, size * 0.5, size * 0.22, rgb(255.0, 255.0, 255.0), 0.10)
+    bind gs = floor(size * 0.42)
+    label(x + (size - text_w(glyph, gs)) / 2.0, y + size * 0.26, gs, rgb(255.0, 255.0, 255.0), glyph)
+}
+
+fn desktop_icons(mx, my) {
+    bind sel_i = st_get("icon_sel", 0.0 - 1.0)
+    bind i = 0.0
+    while i < len(ITEM_LABEL) {
+        bind x = 32.0
+        bind y = 28.0 + i * ICON_STEP
+        bind hot = inside(mx, my, x - 8.0, y - 8.0, ICON + 16.0, ICON_STEP - 4.0) || sel_i == i
+        icon_tile(x, y, ICON, list_get(ITEM_GLYPH, i), list_get(ITEM_COLOR, i), hot)
+        bind lb = list_get(ITEM_LABEL, i)
+        bind lw = text_w(lb, 14.0)
+        label(x + (ICON - lw) / 2.0 + 1.0, y + ICON + 9.0, 14.0, rgb(0.0, 0.0, 0.0), lb)
+        label(x + (ICON - lw) / 2.0, y + ICON + 8.0, 14.0, rgb(240.0, 236.0, 255.0), lb)
+        bind i = i + 1.0
+    }
+}
+
+fn icon_at(mx, my) {
+    bind i = 0.0
+    while i < len(ITEM_LABEL) {
+        if inside(mx, my, 24.0, 20.0 + i * ICON_STEP, ICON + 16.0, ICON_STEP - 4.0) { return i }
+        bind i = i + 1.0
+    }
+    return 0.0 - 1.0
+}
+
+# ── taskbar ──────────────────────────────────────────────────────────────────
+
+fn uptime_str() {
+    bind s = floor(os_uptime())
+    bind hh = floor(s / 3600.0)
+    bind mm = floor((s - hh * 3600.0) / 60.0)
+    bind ss = s - hh * 3600.0 - mm * 60.0
+    return "up " + hh + ":" + two(mm) + ":" + two(ss)
+}
+
+fn taskbar(w, h, mx, my) {
+    bind y = h - TASK_H
+    px_rect(0.0, y, w, TASK_H, rgb(14.0, 12.0, 26.0), 0.92)
+    px_hline(0.0, y, w, rgb(120.0, 90.0, 220.0), 0.6)
+    # start button
+    bind sw = 116.0
+    bind open = st_get("menu", 0.0) > 0.5
+    bind hot = inside(mx, my, 6.0, y + 6.0, sw, TASK_H - 12.0)
+    px_rrect(6.0, y + 6.0, sw, TASK_H - 12.0, 10.0, sel(open || hot, rgb(108.0, 58.0, 255.0), rgb(40.0, 32.0, 70.0)))
+    px_disc(26.0, y + TASK_H / 2.0, 7.0, rgb(255.0, 255.0, 255.0))
+    px_disc(26.0, y + TASK_H / 2.0, 3.5, rgb(108.0, 58.0, 255.0))
+    label(42.0, y + 15.0, 16.0, rgb(255.0, 255.0, 255.0), "LingOS")
+    # pinned apps
+    bind i = 0.0
+    while i < len(ITEM_LABEL) {
+        bind px = 136.0 + i * 44.0
+        bind ph = inside(mx, my, px, y + 6.0, 36.0, 36.0)
+        icon_tile(px, y + 6.0, 36.0, list_get(ITEM_GLYPH, i), list_get(ITEM_COLOR, i), ph)
+        if ph {
+            bind tip = list_get(ITEM_LABEL, i)
+            bind tw = text_w(tip, 14.0)
+            px_rrect(px, y - 34.0, tw + 20.0, 26.0, 8.0, rgb(30.0, 26.0, 52.0), 0.95)
+            label(px + 10.0, y - 29.0, 14.0, rgb(240.0, 236.0, 255.0), tip)
+        }
+        bind i = i + 1.0
+    }
+    # tray: input devices + uptime clock
+    bind clock = uptime_str()
+    bind cw = text_w(clock, 15.0)
+    label(w - cw - 16.0, y + 15.0, 15.0, rgb(230.0, 226.0, 250.0), clock)
+    bind mouse_ok = st_get("mouse_info", "") == "USB mouse" || st_get("mouse_info", "") == "PS/2 mouse"
+    bind kbd_ok = st_get("kbd_info", "") != "serial only"
+    bind tx = w - cw - 120.0
+    px_disc(tx, y + TASK_H / 2.0, 5.0, sel(mouse_ok, rgb(90.0, 220.0, 140.0), rgb(230.0, 90.0, 90.0)))
+    label(tx + 10.0, y + 16.0, 13.0, rgb(200.0, 196.0, 230.0), "mouse")
+    px_disc(tx + 66.0, y + TASK_H / 2.0, 5.0, sel(kbd_ok, rgb(90.0, 220.0, 140.0), rgb(230.0, 90.0, 90.0)))
+    label(tx + 76.0, y + 16.0, 13.0, rgb(200.0, 196.0, 230.0), "kbd")
+}
+
+fn pinned_at(mx, my, h) {
+    bind y = h - TASK_H
+    bind i = 0.0
+    while i < len(ITEM_LABEL) {
+        if inside(mx, my, 136.0 + i * 44.0, y + 6.0, 36.0, 36.0) { return i }
+        bind i = i + 1.0
+    }
+    return 0.0 - 1.0
+}
+
+# ── start menu ───────────────────────────────────────────────────────────────
+
+bind MENU_W = 340.0
+bind MENU_ROW = 46.0
+
+fn menu_rect_y(h) {
+    return h - TASK_H - 8.0 - (96.0 + len(MENU_LABEL) * MENU_ROW + 44.0)
+}
+
+fn start_menu(w, h, mx, my) {
+    bind mh = 96.0 + len(MENU_LABEL) * MENU_ROW + 44.0
+    bind x = 6.0
+    bind y = menu_rect_y(h)
+    px_rrect(x + 4.0, y + 6.0, MENU_W, mh, 14.0, rgb(0.0, 0.0, 0.0), 0.35)
+    px_rrect(x, y, MENU_W, mh, 14.0, rgb(24.0, 20.0, 44.0), 0.97)
+    px_rrect_outline(x, y, MENU_W, mh, 14.0, rgb(120.0, 90.0, 220.0), 0.7)
+    px_disc(x + 36.0, y + 44.0, 20.0, rgb(108.0, 58.0, 255.0))
+    label(x + 27.0, y + 32.0, 22.0, rgb(255.0, 255.0, 255.0), "L")
+    label(x + 66.0, y + 26.0, 20.0, rgb(255.0, 255.0, 255.0), "LingOS")
+    label(x + 66.0, y + 52.0, 13.0, rgb(180.0, 170.0, 220.0), st_get("board_info", ""))
+    px_hline(x + 14.0, y + 84.0, MENU_W - 28.0, rgb(80.0, 70.0, 130.0))
+    bind msel = st_get("menu_sel", 0.0)
+    bind i = 0.0
+    while i < len(MENU_LABEL) {
+        bind ry = y + 92.0 + i * MENU_ROW
+        bind hot = inside(mx, my, x + 8.0, ry, MENU_W - 16.0, MENU_ROW - 4.0)
+        if hot { st_set("menu_sel", i) }
+        if hot || msel == i { px_rrect(x + 8.0, ry, MENU_W - 16.0, MENU_ROW - 4.0, 10.0, rgb(108.0, 58.0, 255.0), 0.55) }
+        icon_tile(x + 18.0, ry + 5.0, 32.0, list_get(ITEM_GLYPH, i), list_get(ITEM_COLOR, i), false)
+        label(x + 62.0, ry + 12.0, 16.0, rgb(245.0, 242.0, 255.0), list_get(MENU_LABEL, i))
+        bind i = i + 1.0
+    }
+    label(x + 18.0, y + mh - 30.0, 13.0, rgb(150.0, 140.0, 200.0), "Enter: open   Esc: close   Ctrl+Q in an app: back")
+}
+
+fn menu_item_at(mx, my, h) {
+    bind y = menu_rect_y(h)
+    bind i = 0.0
+    while i < len(MENU_LABEL) {
+        if inside(mx, my, 14.0, y + 92.0 + i * MENU_ROW, MENU_W - 16.0, MENU_ROW - 4.0) { return i }
+        bind i = i + 1.0
+    }
+    return 0.0 - 1.0
+}
+
+fn in_menu(mx, my, h) {
+    bind mh = 96.0 + len(MENU_LABEL) * MENU_ROW + 44.0
+    return inside(mx, my, 6.0, menu_rect_y(h), MENU_W, mh)
+}
+
+# ── About window (draggable by its title bar) ────────────────────────────────
+
+bind ABOUT_W = 480.0
+bind ABOUT_H = 300.0
+
+fn about_window(mx, my) {
+    bind x = st_get("about_x", 0.0)
+    bind y = st_get("about_y", 0.0)
+    px_rrect(x + 6.0, y + 10.0, ABOUT_W, ABOUT_H, 12.0, rgb(0.0, 0.0, 0.0), 0.35)
+    px_rrect(x, y, ABOUT_W, ABOUT_H, 12.0, rgb(28.0, 24.0, 48.0))
+    px_rrect(x, y, ABOUT_W, 36.0, 12.0, rgb(44.0, 36.0, 78.0))
+    px_rect(x, y + 24.0, ABOUT_W, 12.0, rgb(44.0, 36.0, 78.0))
+    label(x + 16.0, y + 9.0, 15.0, rgb(240.0, 236.0, 255.0), "About LingOS")
+    bind close_hot = inside(mx, my, x + ABOUT_W - 32.0, y + 6.0, 24.0, 24.0)
+    px_disc(x + ABOUT_W - 20.0, y + 18.0, 8.0, sel(close_hot, rgb(255.0, 110.0, 110.0), rgb(230.0, 80.0, 90.0)))
+    label(x + 24.0, y + 54.0, 26.0, rgb(255.0, 255.0, 255.0), "LingOS")
+    label(x + 24.0, y + 90.0, 14.0, rgb(190.0, 180.0, 230.0), "a from-scratch OS written in Ling")
+    bind rows = ["board", "memory", "display", "mouse", "keyboard", "network"]
+    bind i = 0.0
+    while i < len(rows) {
+        bind k = list_get(rows, i)
+        label(x + 24.0, y + 124.0 + i * 24.0, 14.0, rgb(150.0, 140.0, 200.0), k)
+        label(x + 130.0, y + 124.0 + i * 24.0, 14.0, rgb(240.0, 236.0, 255.0), os_info(k))
+        bind i = i + 1.0
+    }
+}
+
+# ── actions ──────────────────────────────────────────────────────────────────
+
+fn splash(w, h, msg) {
+    wallpaper(w, h)
+    bind tw = text_w(msg, 22.0)
+    px_rrect((w - tw) / 2.0 - 24.0, h / 2.0 - 30.0, tw + 48.0, 60.0, 14.0, rgb(24.0, 20.0, 44.0), 0.95)
+    label((w - tw) / 2.0, h / 2.0 - 13.0, 22.0, rgb(255.0, 255.0, 255.0), msg)
+    present()
+}
+
+fn run_item(i, w, h) {
+    st_set("menu", 0.0)
+    bind kind = list_get(ITEM_KIND, i)
+    if kind == "about" {
+        st_set("about", 1.0)
+        st_set("about_x", floor((w - ABOUT_W) / 2.0))
+        st_set("about_y", floor((h - ABOUT_H) / 2.0 - 40.0))
+        return 0.0
+    }
+    if kind == "console" {
+        os_console()
+        return 0.0
+    }
+    if kind == "settings" {
+        os_setup()
+        return 0.0
+    }
+    bind app = str_replace(kind, "app:", "")
+    splash(w, h, "Starting " + list_get(ITEM_LABEL, i) + "...")
+    os_app_run(app)
+    return 0.0
+}
+
+fn cursor(mx, my) {
+    if mx < 0.0 { return 0.0 }
+    bind r = 0.0
+    while r < 17.0 {
+        bind wd = floor(min(r * 0.62, 10.0 - max(0.0, r - 12.0) * 2.0))
+        if wd > 0.0 { px_hline(mx, my + r, wd, rgb(255.0, 255.0, 255.0)) }
+        bind r = r + 1.0
+    }
+    px_line(mx, my, mx, my + 16.0, rgb(0.0, 0.0, 0.0))
+    px_line(mx, my, mx + 10.0, my + 10.0, rgb(0.0, 0.0, 0.0))
+    px_line(mx, my + 16.0, mx + 4.0, my + 12.0, rgb(0.0, 0.0, 0.0))
+    px_line(mx + 4.0, my + 12.0, mx + 10.0, my + 10.0, rgb(0.0, 0.0, 0.0))
+    return 0.0
+}
+
+# ── main loop ────────────────────────────────────────────────────────────────
+
+bind start = do {
+    os_boot()
+    open_window(1280.0, 720.0, "LingOS", 1)
+    px_flat()
+    st_set("font", font_load("assets/font.ttf"))
+    st_set("board_info", os_info("board"))
+    st_set("mouse_info", os_info("mouse"))
+    st_set("kbd_info", os_info("keyboard"))
+    bind prev_down = false
+    bind last_click_t = 0.0
+    bind last_click_i = 0.0 - 1.0
+    while window_is_open() {
+        bind w = get_width()
+        bind h = get_height()
+        bind mx = mouse_x()
+        bind my = mouse_y()
+        bind down = mouse_down()
+        bind click = down && !prev_down
+        bind prev_down = down
+        bind menu_open = st_get("menu", 0.0) > 0.5
+        bind about_open = st_get("about", 0.0) > 0.5
+
+        # keyboard
+        if key_pressed("super") {
+            st_set("menu", sel(menu_open, 0.0, 1.0))
+            st_set("menu_sel", 0.0)
+        } else if key_pressed("escape") {
+            if menu_open {
+                st_set("menu", 0.0)
+            } else if about_open {
+                st_set("about", 0.0)
+            } else {
+                st_set("menu", 1.0)
+                st_set("menu_sel", 0.0)
+            }
+        }
+        bind menu_open = st_get("menu", 0.0) > 0.5
+        if menu_open {
+            bind ms = st_get("menu_sel", 0.0)
+            if key_pressed("down") { st_set("menu_sel", min(ms + 1.0, len(MENU_LABEL) - 1.0)) }
+            if key_pressed("up") { st_set("menu_sel", max(ms - 1.0, 0.0)) }
+            if key_pressed("enter") { run_item(st_get("menu_sel", 0.0), w, h) }
+        } else {
+            if key_pressed("tab") || key_pressed("down") {
+                st_set("icon_sel", st_get("icon_sel", 0.0 - 1.0) + 1.0)
+                if st_get("icon_sel", 0.0) >= len(ITEM_LABEL) { st_set("icon_sel", 0.0) }
+            }
+            if key_pressed("up") { st_set("icon_sel", max(st_get("icon_sel", 0.0) - 1.0, 0.0)) }
+            if key_pressed("enter") && st_get("icon_sel", 0.0 - 1.0) >= 0.0 { run_item(st_get("icon_sel", 0.0), w, h) }
+        }
+
+        # mouse
+        if st_get("dragging", 0.0) > 0.5 {
+            if down {
+                st_set("about_x", mx - st_get("drag_dx", 0.0))
+                st_set("about_y", max(0.0, my - st_get("drag_dy", 0.0)))
+            } else {
+                st_set("dragging", 0.0)
+            }
+        } else if click {
+            bind ax = st_get("about_x", 0.0)
+            bind ay = st_get("about_y", 0.0)
+            if inside(mx, my, 6.0, h - TASK_H + 6.0, 116.0, TASK_H - 12.0) {
+                st_set("menu", sel(menu_open, 0.0, 1.0))
+            } else if menu_open && in_menu(mx, my, h) {
+                bind mi = menu_item_at(mx, my, h)
+                if mi >= 0.0 { run_item(mi, w, h) }
+            } else if pinned_at(mx, my, h) >= 0.0 {
+                run_item(pinned_at(mx, my, h), w, h)
+            } else if about_open && inside(mx, my, ax + ABOUT_W - 32.0, ay + 6.0, 24.0, 24.0) {
+                st_set("about", 0.0)
+            } else if about_open && inside(mx, my, ax, ay, ABOUT_W, 36.0) {
+                st_set("dragging", 1.0)
+                st_set("drag_dx", mx - ax)
+                st_set("drag_dy", my - ay)
+            } else if about_open && inside(mx, my, ax, ay, ABOUT_W, ABOUT_H) {
+                st_set("menu", 0.0)
+            } else {
+                st_set("menu", 0.0)
+                bind ii = icon_at(mx, my)
+                st_set("icon_sel", ii)
+                if ii >= 0.0 {
+                    bind now = os_uptime()
+                    if ii == last_click_i && now - last_click_t < 0.5 {
+                        run_item(ii, w, h)
+                        bind last_click_i = 0.0 - 1.0
+                    } else {
+                        bind last_click_i = ii
+                        bind last_click_t = now
+                    }
+                }
+            }
+        }
+
+        # draw
+        wallpaper(w, h)
+        desktop_icons(mx, my)
+        if st_get("about", 0.0) > 0.5 { about_window(mx, my) }
+        taskbar(w, h, mx, my)
+        if st_get("menu", 0.0) > 0.5 { start_menu(w, h, mx, my) }
+        cursor(mx, my)
+        present()
+    }
+}

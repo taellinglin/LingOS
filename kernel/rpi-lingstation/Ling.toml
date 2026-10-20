@@ -1,15 +1,17 @@
-# LingStationX running natively on LingOS (Raspberry Pi). The entry is the real
-# app in ../LingStationX — not a copy — compiled to aarch64 by the kernel AOT and
-# linked against the in-kernel Ling runtime (ling-kernel's `lingrt`/`lingapp`).
+# LingOS for Raspberry Pi with its desktop: the kernel boots straight into the
+# LingOS desktop (apps/lingdesk -- taskbar, start menu, desktop icons, mouse +
+# keyboard), with LingStationX -- the real app from ../LingStationX, not a copy --
+# compiled into the same image as a built-in app (start menu / desktop icon;
+# Ctrl+Q returns to the desktop). Everything runs on the in-kernel Ling runtime
+# (ling-kernel's `lingrt`/`lingapp`).
 [project]
 name = "lingos-lingstation-rpi"
 version = "0.1.0"
-entry = "../../../LingStationX/ling/main.ling"
+entry = "../../apps/lingdesk/main.ling"
 kind = "kernel"
-# LingOS boots as usual (console, USB, setup) and runs LingStation as a built-in
-# app: autostarted after boot, `lingstation` at the console, Ctrl+Q to return.
-kernel_app = "lingstation"
-# Files the app reads, baked into the kernel image until LingOS can read the SD
-# card. Names are relative to the app folder, so its own paths find them.
+bundle_app = "lingstation:../../../LingStationX/ling/main.ling"
+# Files the desktop and LingStationX read, baked into the kernel image until
+# LingOS can read the SD card. Names are relative to the app folder, so its own
+# paths find them.
 embed_root = "../../../LingStationX"
 includes = ["assets/font.ttf", "assets/fonts/Daemon.otf", "assets/fonts/Chesilin.ttf"]
