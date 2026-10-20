@@ -14,4 +14,6 @@ bundle_app = "lingstation:../../../LingStationX/ling/main.ling"
 # LingOS can read the SD card. Names are relative to the app folder, so its own
 # paths find them.
 embed_root = "../../../LingStationX"
-includes = ["assets/font.ttf", "assets/fonts/Daemon.otf", "assets/fonts/Chesilin.ttf"]
+# + the default startup project (Anthem of Ling Country) and FunKey (its
+# project file only -- its 400 MB of audio stems need a storage driver first).
+includes = ["assets/font.ttf", "assets/fonts/Daemon.otf", "assets/fonts/Chesilin.ttf", "assets/templates/Anthem of Ling Country/project.json", "projects/FunKey/project.json"]
