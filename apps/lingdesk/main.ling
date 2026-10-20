@@ -25,12 +25,18 @@ bind TOP_H = 30.0
 bind TB = 28.0                 # TITLEBAR_H
 
 # Apps: dock letter, label, action ("app:<name>" = built-in app).
-bind APP_GLYPH = ["L", ">", "W", "S", "i"]
-bind APP_LABEL = ["LingStationX (LingOS Edition)", "Console", "Wi-Fi (radio probe)", "Settings", "About LingOS"]
-bind APP_KIND = ["app:lingstation", "console", "console:wifi", "settings", "about"]
+bind APP_GLYPH = ["L", "F", ">", "W", "S", "i"]
+bind APP_LABEL = ["LingStationX (LingOS Edition)", "Files", "Console", "Wi-Fi (radio probe)", "Settings", "About LingOS"]
+bind APP_KIND = ["app:lingstation", "files", "console", "console:wifi", "settings", "about"]
 
 # Applications menu rows: "#header" or an app index.
-bind MENU_ROWS = ["#Sound & Video", "0", "#Accessories", "1", "#System", "2", "3", "4"]
+bind MENU_ROWS = ["#Sound & Video", "0", "#Accessories", "1", "2", "#System", "3", "4", "5"]
+
+bind FILES_W = 600.0
+bind FILES_H = 420.0
+bind ROW_H = 24.0
+bind VIEW_W = 640.0
+bind VIEW_H = 480.0
 bind MENU_W = 260.0
 bind MENU_ROW_H = 22.0
 
@@ -258,6 +264,216 @@ fn about_window() {
     t8(cx, y + ABOUT_H - 22.0, C_DIM, "drag titlebar; dock launches; arrows+enter")
 }
 
+# ── Files ────────────────────────────────────────────────────────────────────
+# The signed-in user's home (home/<user>, the standard folders first in their
+# fixed order), entries with the same icons as the x86 Files window, folders
+# open in place, pictures (BMP/PNG/SVG) and text (.txt/.md/.ling...) open in a
+# viewer window. On the Pi the home is built into the image (read-only) until
+# LingOS can read the SD card.
+
+fn home_dir() {
+    return "home/" + os_user()
+}
+
+fn ext_of(name) {
+    bind parts = str_split(str_lower(name), ".")
+    if len(parts) < 2.0 { return "" }
+    return list_get(parts, len(parts) - 1.0)
+}
+
+fn file_kind(name) {
+    bind e = ext_of(name)
+    if e == "bmp" || e == "png" || e == "svg" { return "picture" }
+    if e == "wav" || e == "mp3" || e == "ogg" || e == "flac" || e == "mid" { return "audio" }
+    if e == "mp4" || e == "mkv" || e == "webm" || e == "avi" || e == "mov" || e == "gif" { return "video" }
+    if e == "obj" || e == "stl" || e == "glb" || e == "gltf" || e == "ply" { return "model" }
+    return "text"
+}
+
+# Current folder as a flat [name, is_dir]* list, home folders first.
+fn files_items() {
+    bind dir = st_get("fdir", home_dir())
+    bind raw = fs_list(dir)
+    bind out = []
+    bind n = len(raw) / 3.0
+    if dir == home_dir() {
+        bind hf = os_home_folders()
+        bind k = 0.0
+        while k < len(hf) {
+            bind i = 0.0
+            while i < n {
+                if list_get(raw, i * 3.0) == list_get(hf, k) && list_get(raw, i * 3.0 + 1.0) > 0.5 {
+                    bind out = list_push(out, list_get(hf, k))
+                    bind out = list_push(out, 1.0)
+                }
+                bind i = i + 1.0
+            }
+            bind k = k + 1.0
+        }
+    }
+    bind i = 0.0
+    while i < n {
+        bind nm = list_get(raw, i * 3.0)
+        bind isd = list_get(raw, i * 3.0 + 1.0)
+        bind skip = false
+        if dir == home_dir() && isd > 0.5 {
+            bind hf2 = os_home_folders()
+            bind k2 = 0.0
+            while k2 < len(hf2) {
+                if list_get(hf2, k2) == nm { bind skip = true }
+                bind k2 = k2 + 1.0
+            }
+        }
+        if !skip {
+            bind out = list_push(out, nm)
+            bind out = list_push(out, isd)
+        }
+        bind i = i + 1.0
+    }
+    return out
+}
+
+fn files_open_win(w, h) {
+    st_set("files", 1.0)
+    st_set("fdir", home_dir())
+    st_set("fsel", 0.0)
+    st_set("fscroll", 0.0)
+    st_set("fmsg", "")
+    st_set("files_x", floor((w - FILES_W) / 2.0) - 60.0)
+    st_set("files_y", floor((h - FILES_H) / 2.0) - 40.0)
+    st_set("focus", "files")
+}
+
+fn files_rows() {
+    return floor((FILES_H - TB - 74.0) / ROW_H)
+}
+
+fn files_activate(i) {
+    bind items = files_items()
+    if i < 0.0 || i * 2.0 >= len(items) { return 0.0 }
+    bind nm = list_get(items, i * 2.0)
+    bind dir = st_get("fdir", home_dir())
+    bind full = dir + "/" + nm
+    if list_get(items, i * 2.0 + 1.0) > 0.5 {
+        st_set("fdir", full)
+        st_set("fsel", 0.0)
+        st_set("fscroll", 0.0)
+        st_set("fmsg", "")
+        return 0.0
+    }
+    bind k = file_kind(nm)
+    if k == "audio" {
+        st_set("fmsg", "sound needs an audio driver on the Pi -- not yet")
+        return 0.0
+    }
+    if k == "video" {
+        st_set("fmsg", "video playback isn't available yet (no video codec)")
+        return 0.0
+    }
+    st_set("viewer", full)
+    st_set("viewer_kind", sel(k == "picture", "picture", "text"))
+    st_set("view_x", st_get("files_x", 100.0) + 80.0)
+    st_set("view_y", st_get("files_y", 80.0) + 40.0)
+    st_set("focus", "viewer")
+    return 0.0
+}
+
+fn files_up() {
+    bind dir = st_get("fdir", home_dir())
+    bind parts = str_split(dir, "/")
+    if len(parts) <= 1.0 { return 0.0 }
+    bind up = ""
+    bind i = 0.0
+    while i < len(parts) - 1.0 {
+        bind up = sel(up == "", list_get(parts, i), up + "/" + list_get(parts, i))
+        bind i = i + 1.0
+    }
+    st_set("fdir", up)
+    st_set("fsel", 0.0)
+    st_set("fscroll", 0.0)
+    st_set("fmsg", "")
+    return 0.0
+}
+
+fn files_window(mx, my) {
+    bind x = st_get("files_x", 0.0)
+    bind y = st_get("files_y", 0.0)
+    window_frame(x, y, FILES_W, FILES_H, "Files", st_get("focus", "") == "files")
+    bind cx = x + 16.0
+    bind cy = y + TB + 12.0
+    bind dir = st_get("fdir", home_dir())
+    t8(cx, cy, C_ACCENT, dir)
+    t8(x + FILES_W - 72.0, cy, C_DIM, "[ up ]")
+    bind items = files_items()
+    bind n = len(items) / 2.0
+    if n < 0.5 { t8(cx, cy + 26.0, C_DIM, "(empty)") }
+    bind rows = files_rows()
+    bind sc = st_get("fscroll", 0.0)
+    bind fsel = st_get("fsel", 0.0)
+    bind r = 0.0
+    while r < rows && sc + r < n {
+        bind i = sc + r
+        bind ry = cy + 22.0 + r * ROW_H
+        if i == fsel {
+            px_rrect(cx - 4.0, ry - 4.0, FILES_W - 24.0, ROW_H - 4.0, 5.0, C_ACCENT, 0.35)
+            px_rrect_outline(cx - 4.0, ry - 4.0, FILES_W - 24.0, ROW_H - 4.0, 5.0, C_ACCENT)
+        } else if inside(mx, my, cx - 4.0, ry - 4.0, FILES_W - 24.0, ROW_H - 4.0) {
+            px_rrect(cx - 4.0, ry - 4.0, FILES_W - 24.0, ROW_H - 4.0, 5.0, C_TITLE)
+        }
+        os_file_icon(cx + 2.0, ry - 2.0, list_get(items, i * 2.0), list_get(items, i * 2.0 + 1.0) > 0.5)
+        t8(cx + 28.0, ry + 2.0, C_TEXT, list_get(items, i * 2.0))
+        bind r = r + 1.0
+    }
+    if st_get("fmsg", "") != "" { t8(cx, y + FILES_H - 40.0, 14721098.0, st_get("fmsg", "")) }
+    t8(cx, y + FILES_H - 22.0, C_DIM, "double-click/enter: open   backspace: up   h: home")
+}
+
+fn files_row_at(mx, my) {
+    bind x = st_get("files_x", 0.0)
+    bind y = st_get("files_y", 0.0)
+    bind cx = x + 16.0
+    bind cy = y + TB + 12.0
+    bind n = len(files_items()) / 2.0
+    bind r = 0.0
+    while r < files_rows() {
+        bind i = st_get("fscroll", 0.0) + r
+        if i < n && inside(mx, my, cx - 4.0, cy + 18.0 + r * ROW_H, FILES_W - 24.0, ROW_H - 4.0) { return i }
+        bind r = r + 1.0
+    }
+    return 0.0 - 1.0
+}
+
+fn files_keep_visible() {
+    bind sc = st_get("fscroll", 0.0)
+    bind fsel = st_get("fsel", 0.0)
+    if fsel < sc { st_set("fscroll", fsel) }
+    if fsel >= sc + files_rows() { st_set("fscroll", fsel - files_rows() + 1.0) }
+}
+
+fn viewer_window() {
+    bind x = st_get("view_x", 0.0)
+    bind y = st_get("view_y", 0.0)
+    bind path = st_get("viewer", "")
+    bind parts = str_split(path, "/")
+    window_frame(x, y, VIEW_W, VIEW_H, list_get(parts, len(parts) - 1.0), st_get("focus", "") == "viewer")
+    bind cx = x + 14.0
+    bind cy = y + TB + 10.0
+    if st_get("viewer_kind", "") == "picture" {
+        px_rect(cx, cy, VIEW_W - 28.0, VIEW_H - TB - 24.0, 1183258.0)
+        if !px_image(path, cx + 4.0, cy + 4.0, VIEW_W - 36.0, VIEW_H - TB - 32.0) {
+            t8(cx + 8.0, cy + 8.0, C_DIM, "couldn't decode this picture")
+        }
+    } else {
+        bind lines = str_split(read_file(path), "\n")
+        bind maxl = floor((VIEW_H - TB - 24.0) / 14.0)
+        bind i = 0.0
+        while i < len(lines) && i < maxl {
+            t8(cx, cy + i * 14.0, C_TEXT, list_get(lines, i))
+            bind i = i + 1.0
+        }
+    }
+}
+
 # ── actions ──────────────────────────────────────────────────────────────────
 
 fn splash(w, h, msg) {
@@ -271,6 +487,10 @@ fn splash(w, h, msg) {
 fn run_app(i, w, h) {
     st_set("menu", 0.0)
     bind kind = list_get(APP_KIND, i)
+    if kind == "files" {
+        files_open_win(w, h)
+        return 0.0
+    }
     if kind == "about" {
         st_set("about", 1.0)
         st_set("about_x", floor((w - ABOUT_W) / 2.0))
@@ -329,6 +549,11 @@ bind start = do {
         } else if key_pressed("escape") {
             if menu_open {
                 st_set("menu", 0.0)
+            } else if st_get("viewer", "") != "" {
+                st_set("viewer", "")
+                st_set("focus", "files")
+            } else if st_get("files", 0.0) > 0.5 && st_get("focus", "") == "files" {
+                st_set("files", 0.0)
             } else if about_open {
                 st_set("about", 0.0)
             } else {
@@ -340,6 +565,17 @@ bind start = do {
             if key_pressed("down") { menu_step(1.0) }
             if key_pressed("up") { menu_step(0.0 - 1.0) }
             if key_pressed("enter") { run_app(st_get("menu_sel", 0.0), w, h) }
+        } else if st_get("files", 0.0) > 0.5 && st_get("focus", "") == "files" {
+            bind nf = len(files_items()) / 2.0
+            if key_pressed("down") { st_set("fsel", min(st_get("fsel", 0.0) + 1.0, max(nf - 1.0, 0.0))) }
+            if key_pressed("up") { st_set("fsel", max(st_get("fsel", 0.0) - 1.0, 0.0)) }
+            if key_pressed("enter") { files_activate(st_get("fsel", 0.0)) }
+            if key_pressed("backspace") { files_up() }
+            if key_pressed("h") {
+                st_set("fdir", home_dir())
+                st_set("fsel", 0.0)
+            }
+            files_keep_visible()
         } else {
             bind ds = st_get("dock_sel", 0.0 - 1.0)
             if key_pressed("right") || key_pressed("tab") { st_set("dock_sel", sel(ds + 1.0 >= len(APP_GLYPH), 0.0, ds + 1.0)) }
@@ -350,15 +586,58 @@ bind start = do {
         # mouse
         if st_get("dragging", 0.0) > 0.5 {
             if down {
-                st_set("about_x", mx - st_get("drag_dx", 0.0))
-                st_set("about_y", max(TOP_H + 1.0, my - st_get("drag_dy", 0.0)))
+                bind dwin = st_get("drag_win", "about")
+                st_set(dwin + "_x", mx - st_get("drag_dx", 0.0))
+                st_set(dwin + "_y", max(TOP_H + 1.0, my - st_get("drag_dy", 0.0)))
             } else {
                 st_set("dragging", 0.0)
             }
         } else if click {
             bind ax = st_get("about_x", 0.0)
             bind ay = st_get("about_y", 0.0)
-            if inside(mx, my, 0.0, 0.0, 84.0, TOP_H) {
+            bind vx = st_get("view_x", 0.0)
+            bind vy = st_get("view_y", 0.0)
+            bind fx = st_get("files_x", 0.0)
+            bind fy = st_get("files_y", 0.0)
+            bind viewing = st_get("viewer", "") != ""
+            bind files_open = st_get("files", 0.0) > 0.5
+            if menu_open && inside(mx, my, 6.0, 31.0, MENU_W, menu_h()) {
+                if menu_row_at(mx, my) >= 0.0 { run_app(menu_row_at(mx, my), w, h) }
+            } else if viewing && inside(mx, my, vx + VIEW_W - 2.0 * TB, vy, 2.0 * TB, TB) {
+                st_set("viewer", "")
+                st_set("focus", "files")
+            } else if viewing && inside(mx, my, vx, vy, VIEW_W - 3.0 * TB, TB) {
+                st_set("dragging", 1.0)
+                st_set("drag_win", "view")
+                st_set("drag_dx", mx - vx)
+                st_set("drag_dy", my - vy)
+                st_set("focus", "viewer")
+            } else if viewing && inside(mx, my, vx, vy, VIEW_W, VIEW_H) {
+                st_set("focus", "viewer")
+            } else if files_open && inside(mx, my, fx + FILES_W - 2.0 * TB, fy, 2.0 * TB, TB) {
+                st_set("files", 0.0)
+            } else if files_open && inside(mx, my, fx, fy, FILES_W - 3.0 * TB, TB) {
+                st_set("dragging", 1.0)
+                st_set("drag_win", "files")
+                st_set("drag_dx", mx - fx)
+                st_set("drag_dy", my - fy)
+                st_set("focus", "files")
+            } else if files_open && inside(mx, my, fx, fy, FILES_W, FILES_H) {
+                st_set("focus", "files")
+                st_set("menu", 0.0)
+                if inside(mx, my, fx + FILES_W - 80.0, fy + TB + 6.0, 70.0, 18.0) { files_up() }
+                bind fi = files_row_at(mx, my)
+                if fi >= 0.0 {
+                    bind now = os_uptime()
+                    if fi == st_get("fsel", 0.0) && now - st_get("fclick_t", 0.0) < 0.45 {
+                        files_activate(fi)
+                        st_set("fclick_t", 0.0)
+                    } else {
+                        st_set("fsel", fi)
+                        st_set("fclick_t", now)
+                    }
+                }
+            } else if inside(mx, my, 0.0, 0.0, 84.0, TOP_H) {
                 st_set("menu", sel(menu_open, 0.0, 1.0))
             } else if menu_open && menu_row_at(mx, my) >= 0.0 {
                 run_app(menu_row_at(mx, my), w, h)
@@ -370,6 +649,7 @@ bind start = do {
                 st_set("about", 0.0)
             } else if about_open && inside(mx, my, ax, ay, ABOUT_W - 3.0 * TB, TB) {
                 st_set("dragging", 1.0)
+                st_set("drag_win", "about")
                 st_set("drag_dx", mx - ax)
                 st_set("drag_dy", my - ay)
                 st_set("menu", 0.0)
@@ -382,6 +662,8 @@ bind start = do {
         wallpaper(w, h)
         top_bar(w, mx, my)
         if st_get("about", 0.0) > 0.5 { about_window() }
+        if st_get("files", 0.0) > 0.5 { files_window(mx, my) }
+        if st_get("viewer", "") != "" { viewer_window() }
         dock(w, h, mx, my)
         if st_get("menu", 0.0) > 0.5 { apps_menu(mx, my) }
         status_line(h)

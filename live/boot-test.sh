@@ -13,7 +13,9 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIST_DIR="$SCRIPT_DIR/../dist"
-TIMEOUT_S="${LINGOS_BOOT_TIMEOUT:-20}"
+# 60s: GRUB's 8s menu + loading the ~27MB desktop kernel (it bundles
+# LingStationX and its projects) from the emulated CD takes >20s now.
+TIMEOUT_S="${LINGOS_BOOT_TIMEOUT:-60}"
 X86_64_DISK="$DIST_DIR/lingos-test-disk.img"
 
 # A real disk on its own explicit primary-IDE slot, same reasoning as
