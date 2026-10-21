@@ -535,6 +535,12 @@ bind start = do {
     while window_is_open() {
         bind w = get_width()
         bind h = get_height()
+        # Tray lights follow hot-plug: re-read the input devices once a second.
+        if floor(os_uptime()) != st_get("info_t", 0.0 - 1.0) {
+            st_set("info_t", floor(os_uptime()))
+            st_set("mouse_info", os_info("mouse"))
+            st_set("kbd_info", os_info("keyboard"))
+        }
         bind mx = mouse_x()
         bind my = mouse_y()
         bind down = mouse_down()
