@@ -361,6 +361,12 @@ fn files_activate(i) {
         st_set("fmsg", "")
         return 0.0
     }
+    if str_ends_with(nm, ".ling") {
+        # Scripts run in the console (`ling run <file>`), like the x86 Terminal;
+        # graphics programs open their own window, Esc / Ctrl+Q returns.
+        os_console("ling run " + full)
+        return 0.0
+    }
     bind k = file_kind(nm)
     if k == "audio" {
         st_set("fmsg", "sound needs an audio driver on the Pi -- not yet")
