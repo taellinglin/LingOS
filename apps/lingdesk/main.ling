@@ -25,12 +25,12 @@ bind TOP_H = 30.0
 bind TB = 28.0                 # TITLEBAR_H
 
 # Apps: dock letter, label, action ("app:<name>" = built-in app).
-bind APP_GLYPH = ["L", "F", ">", "W", "A", "S", "i"]
-bind APP_LABEL = ["LingStationX (LingOS Edition)", "Files", "Console", "Wi-Fi (radio probe)", "HDMI audio test", "Settings", "About LingOS"]
-bind APP_KIND = ["app:lingstation", "files", "console", "console:wifi", "console:hdmiaudio", "settings", "about"]
+bind APP_GLYPH = ["L", "D", "F", ">", "W", "A", "S", "i", "M"]
+bind APP_LABEL = ["LingStationX (LingOS Edition)", "LingDev (game editor)", "Files", "Console", "Wi-Fi (radio probe)", "HDMI audio test", "Settings", "About LingOS", "LingModeler (3D, vector, rigging)"]
+bind APP_KIND = ["app:lingstation", "app:lingdev", "files", "console", "console:wifi", "console:hdmiaudio", "settings", "about", "app:lingmodeler"]
 
 # Applications menu rows: "#header" or an app index.
-bind MENU_ROWS = ["#Sound & Video", "0", "4", "#Accessories", "1", "2", "#System", "3", "5", "6"]
+bind MENU_ROWS = ["#Sound & Video", "0", "5", "#Development", "1", "8", "#Accessories", "2", "3", "#System", "4", "6", "7"]
 
 bind FILES_W = 600.0
 bind FILES_H = 420.0
@@ -176,7 +176,8 @@ fn dock(w, h, mx, my) {
 
 fn status_line(h) {
     # The x86 desktop's bottom-left network line.
-    bind msg = "net: none (Wi-Fi: stage 1 probe)"
+    bind ip = os_info("ip")
+    bind msg = sel(ip == "", "net: none (plug in Ethernet, console: dhcp)", "net: " + ip)
     px_rect(6.0, h - 22.0, len(msg) * 8.0 + 8.0, 16.0, C_DOCK)
     t8(10.0, h - 18.0, C_DIM, msg)
 }
@@ -515,8 +516,21 @@ fn run_app(i, w, h) {
         os_setup()
         return 0.0
     }
+    # a built-in app is only there when its kernel target bundled it (rpi-lingstation / rpi-lingdev)
+    bind app = str_replace(kind, "app:", "")
+    bind have = os_apps()
+    bind found = false
+    bind k = 0.0
+    while k < len(have) {
+        if list_get(have, k) == app { bind found = true }
+        bind k = k + 1.0
+    }
+    if !found {
+        splash(w, h, list_get(APP_LABEL, i) + " is not in this image (build kernel/rpi-" + app + ")")
+        return 0.0
+    }
     splash(w, h, "Starting " + list_get(APP_LABEL, i) + "...")
-    os_app_run(str_replace(kind, "app:", ""))
+    os_app_run(app)
     return 0.0
 }
 
