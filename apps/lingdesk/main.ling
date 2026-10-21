@@ -25,12 +25,12 @@ bind TOP_H = 30.0
 bind TB = 28.0                 # TITLEBAR_H
 
 # Apps: dock letter, label, action ("app:<name>" = built-in app).
-bind APP_GLYPH = ["L", "F", ">", "W", "S", "i"]
-bind APP_LABEL = ["LingStationX (LingOS Edition)", "Files", "Console", "Wi-Fi (radio probe)", "Settings", "About LingOS"]
-bind APP_KIND = ["app:lingstation", "files", "console", "console:wifi", "settings", "about"]
+bind APP_GLYPH = ["L", "F", ">", "W", "A", "S", "i"]
+bind APP_LABEL = ["LingStationX (LingOS Edition)", "Files", "Console", "Wi-Fi (radio probe)", "HDMI audio test", "Settings", "About LingOS"]
+bind APP_KIND = ["app:lingstation", "files", "console", "console:wifi", "console:hdmiaudio", "settings", "about"]
 
 # Applications menu rows: "#header" or an app index.
-bind MENU_ROWS = ["#Sound & Video", "0", "#Accessories", "1", "2", "#System", "3", "4", "5"]
+bind MENU_ROWS = ["#Sound & Video", "0", "4", "#Accessories", "1", "2", "#System", "3", "5", "6"]
 
 bind FILES_W = 600.0
 bind FILES_H = 420.0
@@ -501,8 +501,8 @@ fn run_app(i, w, h) {
         os_console("")
         return 0.0
     }
-    if kind == "console:wifi" {
-        os_console("wifi")
+    if str_starts_with(kind, "console:") {
+        os_console(str_replace(kind, "console:", ""))
         return 0.0
     }
     if kind == "settings" {
@@ -528,7 +528,6 @@ bind start = do {
     os_boot()
     open_window(1280.0, 720.0, "LingOS", 1)
     px_flat()
-    os_cursor("dot")
     st_set("mouse_info", os_info("mouse"))
     st_set("kbd_info", os_info("keyboard"))
     bind prev_down = false

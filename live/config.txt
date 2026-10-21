@@ -21,6 +21,15 @@ device_tree=
 enable_uart=1
 uart_2ndstage=1
 
+# Full-colour framebuffer. The Pi 5 firmware's default is 16-bit RGB565; ask
+# for 32-bit so the desktop and apps render at full depth (the kernel detects
+# whichever depth the firmware actually provides from the buffer it allocates).
+framebuffer_depth=32
+framebuffer_ignore_alpha=1
+# HDMI (not DVI) signalling, so the display accepts the audio packets the
+# kernel's HDMI audio driver sends (arch/aarch64/hdmi_audio.rs).
+hdmi_drive=2
+
 # pciex4_reset=0 keeps the firmware's PCIe x4 root-complex bring-up in place
 # instead of resetting the link just before the kernel loads. The Pi 5's USB,
 # Ethernet and GPIO all live on the RP1 south-bridge behind that PCIe link, so

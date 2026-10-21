@@ -251,9 +251,8 @@ bind start = do {
                 ling_kernel_fb_draw_str(10, fb_h - 18, "net: none", ling_kernel_theme_color(4), ling_kernel_theme_color(13))
             }
 
-            // Cursor: white dot with a dark ring -- visible on any theme.
-            ling_kernel_fb_back_fill_circle(mx, my, 5, 0)
-            ling_kernel_fb_back_fill_circle(mx, my, 4, 16777215)
+            // Cursor: the LingOS pointer (colour-cycling scooped triangle).
+            ling_kernel_wm_draw_cursor(mx, my)
 
             ling_kernel_fb_present()
         }
