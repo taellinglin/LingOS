@@ -25,12 +25,17 @@ bind TOP_H = 30.0
 bind TB = 28.0                 # TITLEBAR_H
 
 # Apps: dock letter, label, action ("app:<name>" = built-in app).
-bind APP_GLYPH = ["L", "D", "F", ">", "W", "A", "S", "i", "M"]
-bind APP_LABEL = ["LingStationX (LingOS Edition)", "LingDev (game editor)", "Files", "Console", "Wi-Fi (radio probe)", "HDMI audio test", "Settings", "About LingOS", "LingModeler (3D, vector, rigging)"]
-bind APP_KIND = ["app:lingstation", "app:lingdev", "files", "console", "console:wifi", "console:hdmiaudio", "settings", "about", "app:lingmodeler"]
+bind APP_GLYPH = ["L", "D", "F", ">", "W", "A", "S", "i", "M", "P"]
+bind APP_LABEL = ["LingStationX (LingOS Edition)", "LingDev (game editor)", "Files", "Console", "Wi-Fi (radio probe)", "HDMI audio test", "Settings", "About LingOS", "LingModeler (3D, vector, rigging)", "Packages (lingfu)"]
+bind APP_KIND = ["app:lingstation", "app:lingdev", "files", "console", "console:wifi", "console:hdmiaudio", "settings", "about", "app:lingmodeler", "packages"]
 
-# Applications menu rows: "#header" or an app index.
-bind MENU_ROWS = ["#Sound & Video", "0", "5", "#Development", "1", "8", "#Accessories", "2", "3", "#System", "4", "6", "7"]
+# Applications menu rows: "#header" or an app index. Installed lingfu
+# packages follow as "#Installed" + indices past the built-ins (menu_rows()).
+bind MENU_ROWS = ["#Sound & Video", "0", "5", "#Development", "1", "8", "#Accessories", "2", "3", "#System", "9", "4", "6", "7"]
+bind PK_W = 660.0
+bind PK_H = 440.0
+bind PK_ROW = 30.0
+bind PK_F = 7.0
 
 bind FILES_W = 600.0
 bind FILES_H = 420.0
@@ -184,15 +189,34 @@ fn status_line(h) {
 
 # ── Applications menu ────────────────────────────────────────────────────────
 
+# The menu's rows: the built-ins, then every installed runnable package.
+fn menu_rows() {
+    bind pk = st_get("pkgs", [])
+    if len(pk) < 0.5 { return MENU_ROWS }
+    bind rows = list_push(MENU_ROWS, "#Installed")
+    bind i = 0.0
+    while i < len(pk) {
+        bind rows = list_push(rows, num_str(len(APP_KIND) + i))
+        bind i = i + 1.0
+    }
+    return rows
+}
+
+fn app_label(i) {
+    if i < len(APP_LABEL) { return list_get(APP_LABEL, i) }
+    return list_get(st_get("pkgs", []), i - len(APP_LABEL))
+}
+
 fn menu_h() {
-    return len(MENU_ROWS) * MENU_ROW_H + 30.0
+    return len(menu_rows()) * MENU_ROW_H + 30.0
 }
 
 fn menu_row_at(mx, my) {
     if !inside(mx, my, 6.0, 31.0, MENU_W, menu_h()) { return 0.0 - 1.0 }
+    bind rows = menu_rows()
     bind r = floor((my - 53.0) / MENU_ROW_H)
-    if r < 0.0 || r >= len(MENU_ROWS) { return 0.0 - 1.0 }
-    bind v = list_get(MENU_ROWS, r)
+    if r < 0.0 || r >= len(rows) { return 0.0 - 1.0 }
+    bind v = list_get(rows, r)
     if str_starts_with(v, "#") { return 0.0 - 1.0 }
     return to_number(v)
 }
@@ -208,19 +232,20 @@ fn apps_menu(mx, my) {
     bind hover = menu_row_at(mx, my)
     if hover >= 0.0 { st_set("menu_sel", hover) }
     bind msel = st_get("menu_sel", 0.0)
+    bind rows = menu_rows()
     bind r = 0.0
-    while r < len(MENU_ROWS) {
+    while r < len(rows) {
         bind yy = ry + 22.0 + r * MENU_ROW_H
-        bind v = list_get(MENU_ROWS, r)
+        bind v = list_get(rows, r)
         if str_starts_with(v, "#") {
             t8(rx + 10.0, yy + 7.0, C_DIM, str_replace(v, "#", ""))
         } else {
             bind ai = to_number(v)
             if ai == msel {
                 px_rrect(rx + 4.0, yy + 2.0, MENU_W - 8.0, MENU_ROW_H - 3.0, 5.0, C_ACCENT)
-                t8(rx + 24.0, yy + 7.0, C_PANEL, list_get(APP_LABEL, ai))
+                t8(rx + 24.0, yy + 7.0, C_PANEL, app_label(ai))
             } else {
-                t8(rx + 24.0, yy + 7.0, C_TEXT, list_get(APP_LABEL, ai))
+                t8(rx + 24.0, yy + 7.0, C_TEXT, app_label(ai))
             }
         }
         bind r = r + 1.0
@@ -457,6 +482,140 @@ fn files_keep_visible() {
     if fsel >= sc + files_rows() { st_set("fscroll", fsel - files_rows() + 1.0) }
 }
 
+# ── Packages window (lingfu over fu.ling-lang.org) ───────────────────────────
+# Rows come from lingfu_catalog(): name, meta, description, installed, app,
+# mentions LingOS, fits this machine. The default tab shows LingOS apps for
+# this machine (a package says so in its description); Tab shows everything.
+
+fn pk_open(w, h) {
+    st_set("pkgs_win", 1.0)
+    st_set("pk_x", floor((w - PK_W) / 2.0) + 40.0)
+    st_set("pk_y", max(TOP_H + 8.0, floor((h - PK_H) / 2.0) - 20.0))
+    st_set("focus", "packages")
+    st_set("pk_sel", 0.0)
+    st_set("pk_scroll", 0.0)
+    st_set("pk_msg", "fetching the catalog from fu.ling-lang.org...")
+    st_set("pk_load", 1.0)
+}
+
+fn pk_refresh() {
+    bind items = lingfu_catalog()
+    st_set("pk_items", items)
+    bind n = len(items) / PK_F
+    if n < 0.5 {
+        st_set("pk_msg", "no catalog: is the network up? (console: net, dhcp)")
+    } else {
+        st_set("pk_msg", num_str(n) + " packages on fu.ling-lang.org")
+    }
+    st_set("pkgs", os_packages())
+}
+
+fn pk_visible() {
+    bind items = st_get("pk_items", [])
+    bind n = len(items) / PK_F
+    bind all = st_get("pk_tab", 0.0) > 0.5
+    bind out = []
+    bind i = 0.0
+    while i < n {
+        if all || (list_get(items, i * PK_F + 5.0) > 0.5 && list_get(items, i * PK_F + 6.0) > 0.5) {
+            bind out = list_push(out, i)
+        }
+        bind i = i + 1.0
+    }
+    return out
+}
+
+fn pk_rows() {
+    return floor((PK_H - TB - 92.0) / PK_ROW)
+}
+
+fn pk_window(mx, my) {
+    bind x = st_get("pk_x", 0.0)
+    bind y = st_get("pk_y", 0.0)
+    window_frame(x, y, PK_W, PK_H, "Packages -- lingfu on " + os_platform(), st_get("focus", "") == "packages")
+    bind cx = x + 16.0
+    bind cy = y + TB + 12.0
+    bind tab = st_get("pk_tab", 0.0)
+    t8(cx, cy, sel(tab < 0.5, C_ACCENT, C_DIM), "[ LingOS apps ]")
+    t8(cx + 136.0, cy, sel(tab > 0.5, C_ACCENT, C_DIM), "[ all packages ]")
+    t8(x + PK_W - 92.0, cy, C_DIM, "[ resync ]")
+    bind items = st_get("pk_items", [])
+    bind vis = pk_visible()
+    bind n = len(vis)
+    if n < 0.5 {
+        t8(cx, cy + 26.0, C_DIM, sel(len(items) < 0.5, "(no catalog yet)", "(no package calls itself a LingOS app for this machine -- Tab shows all)"))
+    }
+    bind rows = pk_rows()
+    bind sc = st_get("pk_scroll", 0.0)
+    bind psel = st_get("pk_sel", 0.0)
+    bind r = 0.0
+    while r < rows && sc + r < n {
+        bind vi = sc + r
+        bind i = list_get(vis, vi)
+        bind ry = cy + 24.0 + r * PK_ROW
+        if vi == psel {
+            px_rrect(cx - 4.0, ry - 4.0, PK_W - 24.0, PK_ROW - 4.0, 5.0, C_ACCENT, 0.35)
+            px_rrect_outline(cx - 4.0, ry - 4.0, PK_W - 24.0, PK_ROW - 4.0, 5.0, C_ACCENT)
+        } else if inside(mx, my, cx - 4.0, ry - 4.0, PK_W - 24.0, PK_ROW - 4.0) {
+            px_rrect(cx - 4.0, ry - 4.0, PK_W - 24.0, PK_ROW - 4.0, 5.0, C_TITLE)
+        }
+        bind nm = list_get(items, i * PK_F)
+        bind meta = list_get(items, i * PK_F + 1.0)
+        bind inst = list_get(items, i * PK_F + 3.0) > 0.5
+        bind isapp = list_get(items, i * PK_F + 4.0) > 0.5
+        t8(cx + 2.0, ry, C_TEXT, nm)
+        t8(cx + 2.0 + (str_len(nm) + 1.0) * 8.0, ry, C_DIM, meta)
+        bind badge = sel(inst, sel(isapp, "installed - app (enter runs)", "installed"), sel(list_get(items, i * PK_F + 5.0) > 0.5, "LingOS", ""))
+        t8(x + PK_W - 16.0 - str_len(badge) * 8.0, ry, sel(inst, 5947498.0, C_ACCENT), badge)
+        bind desc = list_get(items, i * PK_F + 2.0)
+        bind maxc = floor((PK_W - 40.0) / 8.0)
+        t8(cx + 2.0, ry + 11.0, C_DIM, sel(str_len(desc) > maxc, str_slice(desc, 0.0, maxc - 3.0) + "...", desc))
+        bind r = r + 1.0
+    }
+    t8(cx, y + PK_H - 42.0, 14721098.0, st_get("pk_msg", ""))
+    t8(cx, y + PK_H - 22.0, C_DIM, "enter: install / run   tab: apps|all   s: resync   esc: close")
+}
+
+fn pk_row_at(mx, my) {
+    bind x = st_get("pk_x", 0.0)
+    bind y = st_get("pk_y", 0.0)
+    bind cx = x + 16.0
+    bind cy = y + TB + 12.0
+    bind n = len(pk_visible())
+    bind r = 0.0
+    while r < pk_rows() {
+        bind i = st_get("pk_scroll", 0.0) + r
+        if i < n && inside(mx, my, cx - 4.0, cy + 20.0 + r * PK_ROW, PK_W - 24.0, PK_ROW - 4.0) { return i }
+        bind r = r + 1.0
+    }
+    return 0.0 - 1.0
+}
+
+fn pk_keep_visible() {
+    bind sc = st_get("pk_scroll", 0.0)
+    bind psel = st_get("pk_sel", 0.0)
+    if psel < sc { st_set("pk_scroll", psel) }
+    if psel >= sc + pk_rows() { st_set("pk_scroll", psel - pk_rows() + 1.0) }
+}
+
+# Enter on a row: run an installed app, else install the package (done after
+# this frame is presented, so the window shows "installing" meanwhile).
+fn pk_activate() {
+    bind vis = pk_visible()
+    bind psel = st_get("pk_sel", 0.0)
+    if psel >= len(vis) { return 0.0 }
+    bind items = st_get("pk_items", [])
+    bind i = list_get(vis, psel)
+    bind nm = list_get(items, i * PK_F)
+    if list_get(items, i * PK_F + 3.0) > 0.5 && list_get(items, i * PK_F + 4.0) > 0.5 {
+        os_app_run("ling:pkg-" + nm)
+        return 0.0
+    }
+    st_set("pk_msg", "installing " + nm + " from fu.ling-lang.org...")
+    st_set("pk_install", nm)
+    return 0.0
+}
+
 fn viewer_window() {
     bind x = st_get("view_x", 0.0)
     bind y = st_get("view_y", 0.0)
@@ -493,7 +652,17 @@ fn splash(w, h, msg) {
 
 fn run_app(i, w, h) {
     st_set("menu", 0.0)
+    if i >= len(APP_KIND) {
+        # an installed lingfu package: `ling run pkg-<name>` in its own window
+        bind nm = list_get(st_get("pkgs", []), i - len(APP_KIND))
+        os_app_run("ling:pkg-" + nm)
+        return 0.0
+    }
     bind kind = list_get(APP_KIND, i)
+    if kind == "packages" {
+        pk_open(w, h)
+        return 0.0
+    }
     if kind == "files" {
         files_open_win(w, h)
         return 0.0
@@ -534,12 +703,32 @@ fn run_app(i, w, h) {
     return 0.0
 }
 
+# Up/Down move through the menu as drawn (headers skipped), wrapping.
 fn menu_step(d) {
-    bind n = len(APP_LABEL)
-    bind s = st_get("menu_sel", 0.0) + d
-    if s < 0.0 { bind s = n - 1.0 }
-    if s >= n { bind s = 0.0 }
-    st_set("menu_sel", s)
+    bind rows = menu_rows()
+    bind n = len(rows)
+    bind cur = st_get("menu_sel", 0.0)
+    bind pos = 0.0 - 1.0
+    bind r = 0.0
+    while r < n {
+        bind v = list_get(rows, r)
+        if !str_starts_with(v, "#") && to_number(v) == cur { bind pos = r }
+        bind r = r + 1.0
+    }
+    bind p = pos
+    bind k = 0.0
+    while k < n {
+        bind p = p + d
+        if p < 0.0 { bind p = n - 1.0 }
+        if p >= n { bind p = 0.0 }
+        bind v = list_get(rows, p)
+        if !str_starts_with(v, "#") {
+            st_set("menu_sel", to_number(v))
+            return 0.0
+        }
+        bind k = k + 1.0
+    }
+    return 0.0
 }
 
 # ── main loop ────────────────────────────────────────────────────────────────
@@ -559,6 +748,7 @@ bind start = do {
             st_set("info_t", floor(os_uptime()))
             st_set("mouse_info", os_info("mouse"))
             st_set("kbd_info", os_info("keyboard"))
+            st_set("pkgs", os_packages())
         }
         bind mx = mouse_x()
         bind my = mouse_y()
@@ -577,6 +767,8 @@ bind start = do {
             } else if st_get("viewer", "") != "" {
                 st_set("viewer", "")
                 st_set("focus", "files")
+            } else if st_get("pkgs_win", 0.0) > 0.5 && st_get("focus", "") == "packages" {
+                st_set("pkgs_win", 0.0)
             } else if st_get("files", 0.0) > 0.5 && st_get("focus", "") == "files" {
                 st_set("files", 0.0)
             } else if about_open {
@@ -590,6 +782,21 @@ bind start = do {
             if key_pressed("down") { menu_step(1.0) }
             if key_pressed("up") { menu_step(0.0 - 1.0) }
             if key_pressed("enter") { run_app(st_get("menu_sel", 0.0), w, h) }
+        } else if st_get("pkgs_win", 0.0) > 0.5 && st_get("focus", "") == "packages" {
+            bind nv = len(pk_visible())
+            if key_pressed("down") { st_set("pk_sel", min(st_get("pk_sel", 0.0) + 1.0, max(nv - 1.0, 0.0))) }
+            if key_pressed("up") { st_set("pk_sel", max(st_get("pk_sel", 0.0) - 1.0, 0.0)) }
+            if key_pressed("enter") { pk_activate() }
+            if key_pressed("tab") {
+                st_set("pk_tab", sel(st_get("pk_tab", 0.0) > 0.5, 0.0, 1.0))
+                st_set("pk_sel", 0.0)
+                st_set("pk_scroll", 0.0)
+            }
+            if key_pressed("s") {
+                st_set("pk_msg", "resyncing the catalog...")
+                st_set("pk_load", 1.0)
+            }
+            pk_keep_visible()
         } else if st_get("files", 0.0) > 0.5 && st_get("focus", "") == "files" {
             bind nf = len(files_items()) / 2.0
             if key_pressed("down") { st_set("fsel", min(st_get("fsel", 0.0) + 1.0, max(nf - 1.0, 0.0))) }
@@ -626,6 +833,9 @@ bind start = do {
             bind fy = st_get("files_y", 0.0)
             bind viewing = st_get("viewer", "") != ""
             bind files_open = st_get("files", 0.0) > 0.5
+            bind pk_open_now = st_get("pkgs_win", 0.0) > 0.5
+            bind px = st_get("pk_x", 0.0)
+            bind py = st_get("pk_y", 0.0)
             if menu_open && inside(mx, my, 6.0, 31.0, MENU_W, menu_h()) {
                 if menu_row_at(mx, my) >= 0.0 { run_app(menu_row_at(mx, my), w, h) }
             } else if viewing && inside(mx, my, vx + VIEW_W - 2.0 * TB, vy, 2.0 * TB, TB) {
@@ -639,6 +849,41 @@ bind start = do {
                 st_set("focus", "viewer")
             } else if viewing && inside(mx, my, vx, vy, VIEW_W, VIEW_H) {
                 st_set("focus", "viewer")
+            } else if pk_open_now && inside(mx, my, px + PK_W - 2.0 * TB, py, 2.0 * TB, TB) {
+                st_set("pkgs_win", 0.0)
+            } else if pk_open_now && inside(mx, my, px, py, PK_W - 3.0 * TB, TB) {
+                st_set("dragging", 1.0)
+                st_set("drag_win", "pk")
+                st_set("drag_dx", mx - px)
+                st_set("drag_dy", my - py)
+                st_set("focus", "packages")
+            } else if pk_open_now && inside(mx, my, px, py, PK_W, PK_H) {
+                st_set("focus", "packages")
+                st_set("menu", 0.0)
+                bind tcy = py + TB + 12.0
+                if inside(mx, my, px + 16.0, tcy - 4.0, 128.0, 16.0) {
+                    st_set("pk_tab", 0.0)
+                    st_set("pk_sel", 0.0)
+                    st_set("pk_scroll", 0.0)
+                } else if inside(mx, my, px + 152.0, tcy - 4.0, 136.0, 16.0) {
+                    st_set("pk_tab", 1.0)
+                    st_set("pk_sel", 0.0)
+                    st_set("pk_scroll", 0.0)
+                } else if inside(mx, my, px + PK_W - 96.0, tcy - 4.0, 88.0, 16.0) {
+                    st_set("pk_msg", "resyncing the catalog...")
+                    st_set("pk_load", 1.0)
+                }
+                bind pi = pk_row_at(mx, my)
+                if pi >= 0.0 {
+                    bind now = os_uptime()
+                    if pi == st_get("pk_sel", 0.0) && now - st_get("pkclick_t", 0.0) < 0.45 {
+                        pk_activate()
+                        st_set("pkclick_t", 0.0)
+                    } else {
+                        st_set("pk_sel", pi)
+                        st_set("pkclick_t", now)
+                    }
+                }
             } else if files_open && inside(mx, my, fx + FILES_W - 2.0 * TB, fy, 2.0 * TB, TB) {
                 st_set("files", 0.0)
             } else if files_open && inside(mx, my, fx, fy, FILES_W - 3.0 * TB, TB) {
@@ -688,10 +933,22 @@ bind start = do {
         top_bar(w, mx, my)
         if st_get("about", 0.0) > 0.5 { about_window() }
         if st_get("files", 0.0) > 0.5 { files_window(mx, my) }
+        if st_get("pkgs_win", 0.0) > 0.5 { pk_window(mx, my) }
         if st_get("viewer", "") != "" { viewer_window() }
         dock(w, h, mx, my)
         if st_get("menu", 0.0) > 0.5 { apps_menu(mx, my) }
         status_line(h)
         present()
+        # Network work after the frame is on screen (it blocks for seconds).
+        if st_get("pk_load", 0.0) > 0.5 {
+            st_set("pk_load", 0.0)
+            pk_refresh()
+        }
+        if st_get("pk_install", "") != "" {
+            bind nm = st_get("pk_install", "")
+            st_set("pk_install", "")
+            st_set("pk_msg", lingfu_install(nm))
+            pk_refresh()
+        }
     }
 }

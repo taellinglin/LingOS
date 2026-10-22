@@ -14,7 +14,7 @@ run() {  # $1 = log name, rest = serial lines after the console opens
   cat $SP/ser.out > $SP/$log &
   exec 3<>$SP/ser.in
   ( sleep $BOOT; printf '\033' >&3; sleep 4
-    printf '\033[B' >&3; sleep 1; printf '\033[B' >&3; sleep 1; printf '\033[B' >&3; sleep 1
+    printf '\033[B' >&3; sleep 1; printf '\033[B' >&3; sleep 1; printf '\033[B' >&3; sleep 1; printf '\033[B' >&3; sleep 1; printf '\033[B' >&3; sleep 1
     printf '\r' >&3; sleep 6
     for line in "$@"; do
       # typed slowly: the console polls the UART between commands only

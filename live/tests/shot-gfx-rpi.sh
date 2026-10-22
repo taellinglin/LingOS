@@ -9,7 +9,7 @@ rm -rf $SP; mkdir -p $SP; mkfifo $SP/ser.in $SP/ser.out
 cat $SP/ser.out > $SP/serial.log &
 exec 3<>$SP/ser.in
 ( sleep $BOOT; printf '\033' >&3; sleep 4
-  printf '\033[B' >&3; sleep 1; printf '\033[B' >&3; sleep 1; printf '\033[B' >&3; sleep 1
+  printf '\033[B' >&3; sleep 1; printf '\033[B' >&3; sleep 1; printf '\033[B' >&3; sleep 1; printf '\033[B' >&3; sleep 1; printf '\033[B' >&3; sleep 1
   printf '\r' >&3; sleep 6
   printf 'ling run home/ling/Graphics/gfx.ling\r' >&3; sleep 12; echo "screendump $SP/g1.ppm"; sleep 1
   printf '\021' >&3; sleep 5; echo "screendump $SP/g2.ppm"; sleep 1

@@ -12,7 +12,7 @@ rm -rf $SP; mkdir -p $SP; mkfifo $SP/ser.in $SP/ser.out
 cat $SP/ser.out > $SP/serial.log &
 exec 3<>$SP/ser.in
 ( sleep $BOOT; printf '\033' >&3; sleep 4
-  printf '\033[B' >&3; sleep 1; printf '\033[B' >&3; sleep 1; printf '\033[B' >&3; sleep 1
+  printf '\033[B' >&3; sleep 1; printf '\033[B' >&3; sleep 1; printf '\033[B' >&3; sleep 1; printf '\033[B' >&3; sleep 1; printf '\033[B' >&3; sleep 1
   echo "screendump $SP/m.ppm"; sleep 1
   printf '\r' >&3; sleep 6; echo "screendump $SP/c.ppm"; sleep 1
   printf 'ling demo\r' >&3; sleep 6; echo "screendump $SP/d.ppm"; sleep 1
