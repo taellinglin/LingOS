@@ -379,7 +379,7 @@ fn files_activate(i) {
     if i < 0.0 || i * 2.0 >= len(items) { return 0.0 }
     bind nm = list_get(items, i * 2.0)
     bind dir = st_get("fdir", home_dir())
-    bind full = dir + "/" + nm
+    bind full = files_join(dir, nm)
     if list_get(items, i * 2.0 + 1.0) > 0.5 {
         st_set("fdir", full)
         st_set("fsel", 0.0)
@@ -410,10 +410,31 @@ fn files_activate(i) {
     return 0.0
 }
 
+fn files_join(dir, name) {
+    if dir == "" { return name }
+    return dir + "/" + name
+}
+
+# The selected entry's full path ("" with nothing selected).
+fn files_sel_path() {
+    bind items = files_items()
+    bind i = st_get("fsel", 0.0)
+    if i < 0.0 || i * 2.0 >= len(items) { return "" }
+    return files_join(st_get("fdir", home_dir()), list_get(items, i * 2.0))
+}
+
 fn files_up() {
     bind dir = st_get("fdir", home_dir())
+    if dir == "" { return 0.0 }
     bind parts = str_split(dir, "/")
-    if len(parts) <= 1.0 { return 0.0 }
+    if len(parts) <= 1.0 {
+        # above the top folder: the root (home/, media/ for USB drives, ...)
+        st_set("fdir", "")
+        st_set("fsel", 0.0)
+        st_set("fscroll", 0.0)
+        st_set("fmsg", "")
+        return 0.0
+    }
     bind up = ""
     bind i = 0.0
     while i < len(parts) - 1.0 {
@@ -434,7 +455,7 @@ fn files_window(mx, my) {
     bind cx = x + 16.0
     bind cy = y + TB + 12.0
     bind dir = st_get("fdir", home_dir())
-    t8(cx, cy, C_ACCENT, dir)
+    t8(cx, cy, C_ACCENT, sel(dir == "", "/", dir))
     t8(x + FILES_W - 72.0, cy, C_DIM, "[ up ]")
     bind items = files_items()
     bind n = len(items) / 2.0
@@ -457,7 +478,7 @@ fn files_window(mx, my) {
         bind r = r + 1.0
     }
     if st_get("fmsg", "") != "" { t8(cx, y + FILES_H - 40.0, 14721098.0, st_get("fmsg", "")) }
-    t8(cx, y + FILES_H - 22.0, C_DIM, "double-click/enter: open   backspace: up   h: home")
+    t8(cx, y + FILES_H - 22.0, C_DIM, "enter: open  backspace: up  h: home  c/x: copy/cut  v: paste  Del: delete")
 }
 
 fn files_row_at(mx, my) {
@@ -806,6 +827,39 @@ bind start = do {
             if key_pressed("h") {
                 st_set("fdir", home_dir())
                 st_set("fsel", 0.0)
+            }
+            if key_pressed("c") || key_pressed("x") {
+                bind p = files_sel_path()
+                if p != "" {
+                    bind cut = key_pressed("x")
+                    st_set("clip", p)
+                    st_set("clip_cut", sel(cut, 1.0, 0.0))
+                    st_set("fmsg", sel(cut, "cut: ", "copied: ") + p + "   (v pastes into the open folder)")
+                }
+            }
+            if key_pressed("v") && st_get("clip", "") != "" {
+                bind src = st_get("clip", "")
+                bind dst = files_join(st_get("fdir", home_dir()), fs_basename(src))
+                bind cut = st_get("clip_cut", 0.0) > 0.5
+                bind ok = 0.0
+                if cut { bind ok = fs_move(src, dst) } else { bind ok = fs_copy(src, dst) }
+                if ok > 0.5 {
+                    st_set("fmsg", sel(cut, "moved to ", "copied to ") + dst)
+                    if cut { st_set("clip", "") }
+                } else {
+                    st_set("fmsg", "could not write " + dst + " (is this folder on a USB drive or the SD card?)")
+                }
+            }
+            if key_pressed("delete") {
+                bind p = files_sel_path()
+                if p != "" {
+                    if fs_delete(p) > 0.5 {
+                        st_set("fmsg", "deleted " + p)
+                        st_set("fsel", max(st_get("fsel", 0.0) - 1.0, 0.0))
+                    } else {
+                        st_set("fmsg", "could not delete " + p + " (folders must be empty; only removable media can be deleted from)")
+                    }
+                }
             }
             files_keep_visible()
         } else {
