@@ -1,0 +1,43 @@
+# LingOS Studio for the Raspberry Pi 5: the desktop (apps/lingdesk) with the
+# user's three studios and the browser compiled into ONE kernel image --
+# LingStationX (music, ../LingStationX), LingDev (games, ../LingDev),
+# LingModeler (2D/3D, ../LingModeler) and Horizon (web, ../horizon-browser/ling)
+# -- the real apps, not copies. Each is a built-in app (start menu, dock;
+# Ctrl+Q returns to the desktop) on the in-kernel Ling runtime, with its own
+# folder in the user's home: projects in Projects/<App>, settings in
+# Programs/<App>, and its bundled files under apps/<name>/ in the image.
+#   ling build kernel/rpi-studio --platform rpi --out dist-lsx
+[project]
+name = "lingos-studio-rpi"
+version = "0.1.0"
+entry = "../../apps/lingdesk/main.ling"
+kind = "kernel"
+
+[app.lingstation]
+entry = "../../../LingStationX/ling/main.ling"
+root = "../../../LingStationX"
+# fonts + the default startup project (Anthem of Ling Country) and FunKey (its
+# project file only -- its 400 MB of audio stems stay on the PC).
+includes = ["assets/font.ttf", "assets/fonts/Daemon.otf", "assets/fonts/Chesilin.ttf", "assets/templates/Anthem of Ling Country/project.json", "projects/FunKey/project.json"]
+
+[app.lingdev]
+entry = "../../../LingDev/ling/main_os.ling"
+root = "../../../LingDev"
+# the font, the sample projects and their scenes / scripts, so the editor has something to open
+includes = ["assets/font.ttf", "assets/fonts/Daemon.otf", "projects/Demo/lingdev.toml", "projects/Demo/scenes/*.lscene", "projects/Demo/scripts/*.ling", "projects/CutDemo/lingdev.toml", "projects/CutDemo/scenes/*.lscene", "projects/CutDemo/scripts/*.ling", "projects/MenuDemo/lingdev.toml", "projects/MenuDemo/scenes/*.lscene", "projects/MenuDemo/scripts/*.ling"]
+
+[app.lingmodeler]
+entry = "../../../LingModeler/ling/main_os.ling"
+root = "../../../LingModeler"
+includes = ["assets/font.ttf", "examples/*.lmesh", "examples/*.ling", "examples/*.svg"]
+
+[app.horizon]
+entry = "../../../horizon-browser/ling/main_os.ling"
+root = "../../../horizon-browser"
+includes = ["assets/font.ttf", "assets/home.html"]
+
+[app.messenger]
+# the Pi desktop's Messenger window (LingOS/apps/messenger), over the kernel's ling-messenger embedder
+entry = "../../apps/messenger/main.ling"
+root = "../../../LingStationX"
+includes = ["assets/font.ttf"]

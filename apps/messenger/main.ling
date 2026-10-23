@@ -1,0 +1,252 @@
+# Messenger for the LingOS desktop on the Raspberry Pi: the window for the
+# kernel's ling-messenger embedder (LAN discovery, trust-on-first-use identity
+# exchange, hybrid X25519 + ML-KEM-768 handshake, ChaCha20-Poly1305 chat --
+# the same protocol as the x86 desktop's Messenger, so the two talk to each
+# other). Discord-style: conversations on the left (friends, then nearby
+# peers marked +), the chat and a compose box on the right.
+#   Up/Down select, Enter connects (empty compose) or sends, Esc deselects,
+#   /nick <name>, /add <name>, /ping; Ctrl+Q returns to the desktop.
+
+bind C_BG = 1314846.0        # 0x14101E
+bind C_SIDE = 1183258.0      # 0x120E1A
+bind C_PANEL = 2366259.0     # 0x241B33
+bind C_BORDER = 3813197.0    # 0x3A2F4D
+bind C_TEXT = 15131888.0     # 0xE6E0F0
+bind C_DIM = 10194864.0      # 0x9B8FB0
+bind C_ACCENT = 4886496.0    # 0x4A8FE0
+bind C_ONLINE = 3908957.0    # 0x3BA55D
+bind SIDE_W = 230.0
+bind ROW_H = 44.0
+bind HEAD_H = 48.0
+bind COMPOSE_H = 56.0
+
+fn sel(cond, a, b) {
+    if cond { return a }
+    return b
+}
+
+fn inside(mx, my, x, y, w, h) {
+    return mx >= x && my >= y && mx < x + w && my < y + h
+}
+
+fn field(row, k) {
+    bind parts = str_split(row, "\t")
+    if k < len(parts) { return list_get(parts, k) }
+    return ""
+}
+
+fn avatar_color(name) {
+    bind pal = [4886496.0, 3908957.0, 14721098.0, 11557104.0, 15558208.0, 3390142.0]
+    bind sum = 0.0
+    bind k = 0.0
+    while k < str_len(name) {
+        bind sum = sum + str_find(" abcdefghijklmnopqrstuvwxyz0123456789", str_lower(str_slice(name, k, 1.0))) + 1.0
+        bind k = k + 1.0
+    }
+    return list_get(pal, sum % 6.0)
+}
+
+fn avatar(cx, cy, r, name, f) {
+    px_disc(cx, cy, r, avatar_color(name))
+    bind init = str_upper(str_slice(name, 0.0, 1.0))
+    px_text(f, cx - font_width(f, r, init) / 2.0, cy - r * 0.6, r, C_TEXT, init)
+    return 0.0
+}
+
+# kernel text input hands out what was typed since the last poll: keep our own buffer
+fn typed_into(buf) {
+    bind pend = text_poll()
+    bind b = buf
+    if key_pressed("backspace") && str_len(b) > 0.0 { bind b = str_slice(b, 0.0, str_len(b) - 1.0) }
+    bind ok_chars = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+    bind i = 0.0
+    while i < str_len(pend) {
+        bind ch = str_slice(pend, i, 1.0)
+        if str_find(ok_chars, ch) >= 0.0 { bind b = b + ch }
+        bind i = i + 1.0
+    }
+    return b
+}
+
+# word-wrap `text` into lines no wider than w at size s
+fn wrap(f, s, text, w) {
+    bind words = str_split(text, " ")
+    bind lines = []
+    bind line = ""
+    bind k = 0.0
+    bind wd = ""
+    bind cand = ""
+    while k < len(words) {
+        bind wd = list_get(words, k)
+        bind cand = sel(line == "", wd, line + " " + wd)
+        if font_width(f, s, cand) > w && line != "" {
+            bind lines = list_push(lines, line)
+            bind line = wd
+        } else {
+            bind line = cand
+        }
+        bind k = k + 1.0
+    }
+    if line != "" { bind lines = list_push(lines, line) }
+    return lines
+}
+
+fn draw_sidebar(f, h, mx, my) {
+    px_rect(0.0, 0.0, SIDE_W, h, C_SIDE)
+    px_rect(SIDE_W, 0.0, 1.0, h, C_BORDER)
+    px_text(f, 14.0, 12.0, 12.0, C_DIM, "DIRECT MESSAGES")
+    bind rows = st_get("rows", [])
+    bind selr = msg_selected()
+    bind k = 0.0
+    bind row = ""
+    bind y = 36.0
+    bind name = ""
+    while k < len(rows) && y < h - 70.0 {
+        bind row = list_get(rows, k)
+        bind name = field(row, 2.0)
+        if k == selr { px_rrect(6.0, y, SIDE_W - 12.0, ROW_H - 4.0, 8.0, C_PANEL) }
+        else if inside(mx, my, 0.0, y, SIDE_W, ROW_H) { px_rrect(6.0, y, SIDE_W - 12.0, ROW_H - 4.0, 8.0, C_BG) }
+        avatar(28.0, y + 20.0, 14.0, name, f)
+        if field(row, 3.0) == "1" { px_disc(38.0, y + 30.0, 4.0, C_ONLINE) }
+        px_text(f, 52.0, y + 7.0, 15.0, sel(k == selr, C_TEXT, C_DIM), name)
+        px_text(f, 52.0, y + 25.0, 11.0, C_DIM, sel(field(row, 0.0) == "friend", sel(field(row, 3.0) == "1", "online", "away"), "nearby - Enter adds"))
+        bind y = y + ROW_H
+        bind k = k + 1.0
+    }
+    if len(rows) < 0.5 {
+        px_text(f, 14.0, 40.0, 13.0, C_DIM, "no one nearby yet")
+        px_text(f, 14.0, 58.0, 12.0, C_DIM, "(same LAN, Messenger open)")
+    }
+    # me
+    bind me = st_get("me", "")
+    px_rect(0.0, h - 60.0, SIDE_W, 60.0, C_PANEL)
+    avatar(28.0, h - 30.0, 14.0, field(me, 0.0), f)
+    px_text(f, 52.0, h - 44.0, 14.0, C_TEXT, field(me, 0.0))
+    px_text(f, 52.0, h - 26.0, 11.0, C_DIM, str_slice(field(me, 1.0), 0.0, 22.0))
+    return 0.0
+}
+
+fn draw_chat(f, w, h) {
+    bind x0 = SIDE_W + 1.0
+    bind pw = w - x0
+    bind rows = st_get("rows", [])
+    bind selr = msg_selected()
+    px_rect(x0, 0.0, pw, HEAD_H, C_PANEL)
+    px_rect(x0, HEAD_H, pw, 1.0, C_BORDER)
+    if selr < 0.0 || selr >= len(rows) {
+        px_text(f, x0 + 20.0, 16.0, 16.0, C_DIM, "Select a conversation, or add a nearby peer")
+        px_text(f, x0 + 20.0, HEAD_H + 30.0, 14.0, C_DIM, "Friends appear when another LingOS on this network has Messenger open.")
+        px_text(f, x0 + 20.0, HEAD_H + 52.0, 14.0, C_DIM, "Compare LingIds out of band before trusting a first contact.")
+        px_text(f, x0 + 20.0, HEAD_H + 84.0, 14.0, C_DIM, "Typing with nothing selected and pressing Enter sets your handle.")
+    } else {
+        bind row = list_get(rows, selr)
+        avatar(x0 + 28.0, HEAD_H / 2.0, 14.0, field(row, 2.0), f)
+        px_text(f, x0 + 52.0, 8.0, 16.0, C_TEXT, field(row, 2.0))
+        px_text(f, x0 + 52.0, 28.0, 11.0, C_DIM, msg_status())
+        # messages, newest at the bottom
+        bind lines = st_get("lines", [])
+        bind y = h - COMPOSE_H - 16.0
+        bind k = len(lines) - 1.0
+        bind ln = ""
+        bind who = ""
+        bind wl = []
+        bind j = 0.0
+        bind top = HEAD_H + 8.0
+        bind maxw = pw - 60.0
+        if !msg_connected() && field(row, 0.0) == "friend" {
+            px_text(f, x0 + 20.0, h - COMPOSE_H - 34.0, 13.0, C_DIM, "Not connected -- press Enter with an empty box to start the chat.")
+            bind y = y - 22.0
+        }
+        px_clip(x0, top, pw, h - COMPOSE_H - top)
+        while k >= 0.0 && y > top - 20.0 {
+            bind ln = list_get(lines, k)
+            bind who = field(ln, 0.0)
+            bind wl = wrap(f, 15.0, field(ln, 1.0), maxw)
+            bind y = y - len(wl) * 20.0 - 8.0
+            bind j = 0.0
+            while j < len(wl) {
+                px_text(f, x0 + 44.0, y + j * 20.0, 15.0, C_TEXT, list_get(wl, j))
+                bind j = j + 1.0
+            }
+            px_text(f, x0 + 20.0, y, 11.0, sel(who == "me", C_ACCENT, C_ONLINE), sel(who == "me", "me", ">"))
+            bind k = k - 1.0
+        }
+        px_unclip()
+    }
+    # compose
+    bind cy = h - COMPOSE_H + 8.0
+    px_rrect(x0 + 16.0, cy, pw - 32.0, COMPOSE_H - 20.0, 10.0, C_SIDE)
+    bind text = st_get("compose", "")
+    bind hint = sel(selr < 0.0, "type a handle for yourself, or /add <name>", "message (Enter sends; /nick /add /ping)")
+    if text == "" { px_text(f, x0 + 30.0, cy + 10.0, 15.0, C_DIM, hint) }
+    else {
+        px_clip(x0 + 24.0, cy, pw - 48.0, COMPOSE_H - 20.0)
+        bind tw = font_width(f, 15.0, text)
+        px_text(f, min(x0 + 30.0, x0 + pw - 40.0 - tw), cy + 10.0, 15.0, C_TEXT, text)
+        px_unclip()
+        px_rect(min(x0 + 30.0 + tw, x0 + pw - 40.0) + 2.0, cy + 10.0, 2.0, 18.0, C_TEXT)
+    }
+    return 0.0
+}
+
+bind start = do {
+    open_window(1280.0, 720.0, "Messenger", 1)
+    bind f = font_load("assets/font.ttf")
+    msg_start()
+    st_set("me", msg_me())
+    st_set("compose", "")
+    text_poll()
+    bind prev_down = false
+    bind w = 0.0
+    bind h = 0.0
+    bind mx = 0.0
+    bind my = 0.0
+    bind down = false
+    bind click = false
+    bind frame = 0.0
+    bind selr = 0.0
+    bind rows = []
+    bind r = 0.0
+    while window_is_open() {
+        bind w = get_width()
+        bind h = get_height()
+        bind mx = mouse_x()
+        bind my = mouse_y()
+        bind down = mouse_down()
+        bind click = down && !prev_down
+        bind prev_down = down
+        msg_tick()
+        if frame % 10.0 == 0.0 {
+            st_set("rows", msg_rows())
+            st_set("me", msg_me())
+        }
+        st_set("lines", msg_lines())
+        bind rows = st_get("rows", [])
+        bind selr = msg_selected()
+
+        st_set("compose", typed_into(st_get("compose", "")))
+        if key_pressed("enter") {
+            if st_get("compose", "") != "" {
+                msg_submit(st_get("compose", ""))
+                st_set("compose", "")
+            } else if selr >= 0.0 && selr < len(rows) {
+                msg_activate(selr)
+            }
+        }
+        if key_pressed("escape") { msg_select(0.0 - 1.0) }
+        if key_pressed("down") && len(rows) > 0.0 { msg_select(min(selr + 1.0, len(rows) - 1.0)) }
+        if key_pressed("up") && len(rows) > 0.0 { msg_select(max(selr - 1.0, 0.0)) }
+        if click && mx < SIDE_W {
+            bind r = floor((my - 36.0) / ROW_H)
+            if my >= 36.0 && r >= 0.0 && r < len(rows) {
+                if r == selr { msg_activate(r) } else { msg_select(r) }
+            }
+        }
+
+        px_rect(0.0, 0.0, w, h, C_BG)
+        draw_chat(f, w, h)
+        draw_sidebar(f, h, mx, my)
+        present()
+        bind frame = frame + 1.0
+    }
+}

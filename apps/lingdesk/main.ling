@@ -25,17 +25,20 @@ bind TOP_H = 30.0
 bind TB = 28.0                 # TITLEBAR_H
 
 # Apps: dock letter, label, action ("app:<name>" = built-in app).
-bind APP_GLYPH = ["L", "D", "F", ">", "W", "A", "S", "i", "M", "P"]
-bind APP_LABEL = ["LingStationX (LingOS Edition)", "LingDev (game editor)", "Files", "Console", "Wi-Fi (radio probe)", "HDMI audio test", "Settings", "About LingOS", "LingModeler (3D, vector, rigging)", "Packages (lingfu)"]
-bind APP_KIND = ["app:lingstation", "app:lingdev", "files", "console", "console:wifi", "console:hdmiaudio", "settings", "about", "app:lingmodeler", "packages"]
+bind APP_GLYPH = ["L", "D", "F", ">", "W", "A", "S", "i", "M", "P", "H", "@"]
+bind APP_LABEL = ["LingStationX (music studio)", "LingDev (game editor)", "Files", "Console", "Wi-Fi networks", "HDMI audio test", "Settings", "About LingOS", "LingModeler (3D, vector, rigging)", "Packages (lingfu)", "Horizon (web browser)", "Messenger (LAN chat)"]
+bind APP_KIND = ["app:lingstation", "app:lingdev", "files", "console", "wifi", "console:hdmiaudio", "settings", "about", "app:lingmodeler", "packages", "app:horizon", "app:messenger"]
 
 # Applications menu rows: "#header" or an app index. Installed lingfu
 # packages follow as "#Installed" + indices past the built-ins (menu_rows()).
-bind MENU_ROWS = ["#Sound & Video", "0", "5", "#Development", "1", "8", "#Accessories", "2", "3", "#System", "9", "4", "6", "7"]
+bind MENU_ROWS = ["#Sound & Video", "0", "5", "#Development", "1", "8", "#Internet", "10", "11", "4", "#Accessories", "2", "3", "#System", "9", "6", "7"]
 bind PK_W = 660.0
 bind PK_H = 440.0
 bind PK_ROW = 30.0
 bind PK_F = 7.0
+bind WIFI_W = 560.0
+bind WIFI_H = 400.0
+bind WIFI_ROW = 26.0
 
 bind FILES_W = 600.0
 bind FILES_H = 420.0
@@ -661,6 +664,154 @@ fn viewer_window() {
     }
 }
 
+# ── Wi-Fi ────────────────────────────────────────────────────────────────────
+# Pick a network: wifi_scan() gives "ssid<TAB>dBm<TAB>security<TAB>channel" rows
+# (strongest first; a single "!reason" row when the radio cannot scan), Enter on
+# a secured network asks for the passphrase, wifi_connect joins it (the radio
+# firmware's own WPA2 supplicant), remembers it for the next boot and leases an
+# address. The scan and the join run after the frame is drawn (they block).
+
+fn wifi_open(w, h) {
+    st_set("wifi_win", 1.0)
+    st_set("focus", "wifi")
+    st_set("wifi_x", floor((w - WIFI_W) / 2.0))
+    st_set("wifi_y", floor((h - WIFI_H) / 2.0 - 30.0))
+    st_set("wifi_mode", "list")
+    st_set("wifi_sel", 0.0)
+    if wifi_available() {
+        st_set("wifi_msg", "scanning...")
+        st_set("wifi_scan", 1.0)
+    } else {
+        st_set("wifi_msg", wifi_status())
+        st_set("wifi_list", [])
+    }
+    return 0.0
+}
+
+fn wifi_field(row, k) {
+    bind parts = str_split(row, "\t")
+    if k < len(parts) { return list_get(parts, k) }
+    return ""
+}
+
+fn wifi_rows() {
+    bind l = st_get("wifi_list", [])
+    if len(l) > 0.5 && str_starts_with(list_get(l, 0.0), "!") { return [] }
+    return l
+}
+
+fn wifi_bars(x, y, dbm) {
+    bind n = sel(dbm >= 0.0 - 55.0, 4.0, sel(dbm >= 0.0 - 65.0, 3.0, sel(dbm >= 0.0 - 75.0, 2.0, 1.0)))
+    bind i = 0.0
+    while i < 4.0 {
+        px_rect(x + i * 6.0, y + 12.0 - (i + 1.0) * 3.0, 4.0, (i + 1.0) * 3.0, sel(i < n, C_ACCENT, C_BORDER))
+        bind i = i + 1.0
+    }
+    return 0.0
+}
+
+fn wifi_max_rows() {
+    return floor((WIFI_H - TB - 110.0) / WIFI_ROW)
+}
+
+fn wifi_first_row() {
+    bind rows = wifi_rows()
+    bind maxr = wifi_max_rows()
+    return max(0.0, min(st_get("wifi_sel", 0.0) - maxr + 1.0, len(rows) - maxr))
+}
+
+fn wifi_window(mx, my) {
+    bind x = st_get("wifi_x", 0.0)
+    bind y = st_get("wifi_y", 0.0)
+    window_frame(x, y, WIFI_W, WIFI_H, "Wi-Fi networks", st_get("focus", "") == "wifi")
+    bind cx = x + 16.0
+    bind cy = y + TB + 10.0
+    t8(cx, cy, C_DIM, wifi_status())
+    bind rows = wifi_rows()
+    bind l = st_get("wifi_list", [])
+    bind ly = cy + 24.0
+    if len(rows) < 0.5 {
+        bind why = st_get("wifi_msg", "")
+        if len(l) > 0.5 { bind why = str_replace(list_get(l, 0.0), "!", "") }
+        t8(cx, ly + 8.0, C_TEXT, why)
+    }
+    bind sel_i = st_get("wifi_sel", 0.0)
+    bind maxr = wifi_max_rows()
+    bind first = wifi_first_row()
+    bind i = first
+    while i < len(rows) && i < first + maxr {
+        bind row = list_get(rows, i)
+        bind ry = ly + (i - first) * WIFI_ROW
+        if i == sel_i { px_rrect(cx - 6.0, ry - 3.0, WIFI_W - 20.0, WIFI_ROW - 2.0, 5.0, C_ACCENT) }
+        bind fg = sel(i == sel_i, C_PANEL, C_TEXT)
+        wifi_bars(cx, ry, to_number(wifi_field(row, 1.0)))
+        t8(cx + 34.0, ry + 2.0, fg, wifi_field(row, 0.0))
+        t8(x + WIFI_W - 150.0, ry + 2.0, sel(i == sel_i, C_PANEL, C_DIM), wifi_field(row, 2.0) + "  ch " + wifi_field(row, 3.0))
+        bind i = i + 1.0
+    }
+    bind by = y + WIFI_H - 62.0
+    if st_get("wifi_mode", "") == "pass" {
+        px_rrect(cx - 4.0, by - 6.0, WIFI_W - 24.0, 26.0, 5.0, C_DOCK)
+        bind dots = ""
+        bind k = 0.0
+        while k < str_len(st_get("wifi_pass", "")) {
+            bind dots = dots + "*"
+            bind k = k + 1.0
+        }
+        t8(cx, by + 3.0, C_TEXT, "passphrase for " + st_get("wifi_ssid", "") + ": " + dots + "_")
+        t8(cx, y + WIFI_H - 24.0, C_DIM, "Enter: connect   Esc: back   (no quotes or backslashes)")
+    } else {
+        t8(cx, by + 3.0, C_DIM, st_get("wifi_msg", ""))
+        t8(cx, y + WIFI_H - 24.0, C_DIM, "Enter: connect   r: rescan   f: forget   Esc: close")
+    }
+}
+
+fn wifi_row_at(mx, my) {
+    bind x = st_get("wifi_x", 0.0)
+    bind y = st_get("wifi_y", 0.0)
+    bind ly = y + TB + 34.0
+    bind maxr = wifi_max_rows()
+    if !inside(mx, my, x + 10.0, ly - 3.0, WIFI_W - 20.0, maxr * WIFI_ROW) { return 0.0 - 1.0 }
+    bind rows = wifi_rows()
+    bind r = floor((my - (ly - 3.0)) / WIFI_ROW) + wifi_first_row()
+    if r < 0.0 || r >= len(rows) { return 0.0 - 1.0 }
+    return r
+}
+
+# Enter on a network: open ones join at once, secured ones ask for the passphrase.
+fn wifi_activate() {
+    bind rows = wifi_rows()
+    bind i = st_get("wifi_sel", 0.0)
+    if i < 0.0 || i >= len(rows) { return 0.0 }
+    bind row = list_get(rows, i)
+    st_set("wifi_ssid", wifi_field(row, 0.0))
+    st_set("wifi_pass", "")
+    if wifi_field(row, 2.0) == "open" {
+        st_set("wifi_msg", "joining " + st_get("wifi_ssid", "") + "...")
+        st_set("wifi_join", 1.0)
+    } else {
+        st_set("wifi_mode", "pass")
+        text_poll()
+    }
+    return 0.0
+}
+
+# Typed passphrase characters (the kernel hands out what was typed since the last poll).
+fn wifi_type() {
+    bind pend = text_poll()
+    bind buf = st_get("wifi_pass", "")
+    if key_pressed("backspace") && str_len(buf) > 0.0 { bind buf = str_slice(buf, 0.0, str_len(buf) - 1.0) }
+    bind ok_chars = " !#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+    bind i = 0.0
+    while i < str_len(pend) {
+        bind ch = str_slice(pend, i, 1.0)
+        if str_find(ok_chars, ch) >= 0.0 { bind buf = buf + ch }
+        bind i = i + 1.0
+    }
+    st_set("wifi_pass", buf)
+    return 0.0
+}
+
 # ── actions ──────────────────────────────────────────────────────────────────
 
 fn splash(w, h, msg) {
@@ -694,6 +845,10 @@ fn run_app(i, w, h) {
         st_set("about_y", floor((h - ABOUT_H) / 2.0 - 40.0))
         return 0.0
     }
+    if kind == "wifi" {
+        wifi_open(w, h)
+        return 0.0
+    }
     if kind == "console" {
         os_console("")
         return 0.0
@@ -716,7 +871,7 @@ fn run_app(i, w, h) {
         bind k = k + 1.0
     }
     if !found {
-        splash(w, h, list_get(APP_LABEL, i) + " is not in this image (build kernel/rpi-" + app + ")")
+        splash(w, h, list_get(APP_LABEL, i) + " is not in this image (build kernel/rpi-studio)")
         return 0.0
     }
     splash(w, h, "Starting " + list_get(APP_LABEL, i) + "...")
@@ -785,6 +940,8 @@ bind start = do {
         } else if key_pressed("escape") {
             if menu_open {
                 st_set("menu", 0.0)
+            } else if st_get("wifi_win", 0.0) > 0.5 && st_get("focus", "") == "wifi" {
+                if st_get("wifi_mode", "") == "pass" { st_set("wifi_mode", "list") } else { st_set("wifi_win", 0.0) }
             } else if st_get("viewer", "") != "" {
                 st_set("viewer", "")
                 st_set("focus", "files")
@@ -803,6 +960,28 @@ bind start = do {
             if key_pressed("down") { menu_step(1.0) }
             if key_pressed("up") { menu_step(0.0 - 1.0) }
             if key_pressed("enter") { run_app(st_get("menu_sel", 0.0), w, h) }
+        } else if st_get("wifi_win", 0.0) > 0.5 && st_get("focus", "") == "wifi" {
+            if st_get("wifi_mode", "") == "pass" {
+                wifi_type()
+                if key_pressed("enter") {
+                    st_set("wifi_mode", "list")
+                    st_set("wifi_msg", "joining " + st_get("wifi_ssid", "") + "...")
+                    st_set("wifi_join", 1.0)
+                }
+            } else {
+                bind nw = len(wifi_rows())
+                if key_pressed("down") { st_set("wifi_sel", min(st_get("wifi_sel", 0.0) + 1.0, max(nw - 1.0, 0.0))) }
+                if key_pressed("up") { st_set("wifi_sel", max(st_get("wifi_sel", 0.0) - 1.0, 0.0)) }
+                if key_pressed("enter") { wifi_activate() }
+                if key_pressed("r") {
+                    st_set("wifi_msg", "scanning...")
+                    st_set("wifi_scan", 1.0)
+                }
+                if key_pressed("f") {
+                    wifi_forget()
+                    st_set("wifi_msg", "forgot the saved network")
+                }
+            }
         } else if st_get("pkgs_win", 0.0) > 0.5 && st_get("focus", "") == "packages" {
             bind nv = len(pk_visible())
             if key_pressed("down") { st_set("pk_sel", min(st_get("pk_sel", 0.0) + 1.0, max(nv - 1.0, 0.0))) }
@@ -890,6 +1069,9 @@ bind start = do {
             bind pk_open_now = st_get("pkgs_win", 0.0) > 0.5
             bind px = st_get("pk_x", 0.0)
             bind py = st_get("pk_y", 0.0)
+            bind wifi_now = st_get("wifi_win", 0.0) > 0.5
+            bind wx = st_get("wifi_x", 0.0)
+            bind wy = st_get("wifi_y", 0.0)
             if menu_open && inside(mx, my, 6.0, 31.0, MENU_W, menu_h()) {
                 if menu_row_at(mx, my) >= 0.0 { run_app(menu_row_at(mx, my), w, h) }
             } else if viewing && inside(mx, my, vx + VIEW_W - 2.0 * TB, vy, 2.0 * TB, TB) {
@@ -903,6 +1085,28 @@ bind start = do {
                 st_set("focus", "viewer")
             } else if viewing && inside(mx, my, vx, vy, VIEW_W, VIEW_H) {
                 st_set("focus", "viewer")
+            } else if wifi_now && inside(mx, my, wx + WIFI_W - 2.0 * TB, wy, 2.0 * TB, TB) {
+                st_set("wifi_win", 0.0)
+            } else if wifi_now && inside(mx, my, wx, wy, WIFI_W - 3.0 * TB, TB) {
+                st_set("dragging", 1.0)
+                st_set("drag_win", "wifi")
+                st_set("drag_dx", mx - wx)
+                st_set("drag_dy", my - wy)
+                st_set("focus", "wifi")
+            } else if wifi_now && inside(mx, my, wx, wy, WIFI_W, WIFI_H) {
+                st_set("focus", "wifi")
+                st_set("menu", 0.0)
+                bind wi = wifi_row_at(mx, my)
+                if wi >= 0.0 {
+                    bind now = os_uptime()
+                    if wi == st_get("wifi_sel", 0.0) && now - st_get("wclick_t", 0.0) < 0.45 {
+                        wifi_activate()
+                        st_set("wclick_t", 0.0)
+                    } else {
+                        st_set("wifi_sel", wi)
+                        st_set("wclick_t", now)
+                    }
+                }
             } else if pk_open_now && inside(mx, my, px + PK_W - 2.0 * TB, py, 2.0 * TB, TB) {
                 st_set("pkgs_win", 0.0)
             } else if pk_open_now && inside(mx, my, px, py, PK_W - 3.0 * TB, TB) {
@@ -988,6 +1192,7 @@ bind start = do {
         if st_get("about", 0.0) > 0.5 { about_window() }
         if st_get("files", 0.0) > 0.5 { files_window(mx, my) }
         if st_get("pkgs_win", 0.0) > 0.5 { pk_window(mx, my) }
+        if st_get("wifi_win", 0.0) > 0.5 { wifi_window(mx, my) }
         if st_get("viewer", "") != "" { viewer_window() }
         dock(w, h, mx, my)
         if st_get("menu", 0.0) > 0.5 { apps_menu(mx, my) }
@@ -1003,6 +1208,19 @@ bind start = do {
             st_set("pk_install", "")
             st_set("pk_msg", lingfu_install(nm))
             pk_refresh()
+        }
+        if st_get("wifi_scan", 0.0) > 0.5 {
+            st_set("wifi_scan", 0.0)
+            st_set("wifi_list", wifi_scan())
+            st_set("wifi_sel", 0.0)
+            bind got = wifi_rows()
+            st_set("wifi_msg", sel(len(got) > 0.5, num_str(len(got)) + " networks, strongest first", ""))
+        }
+        if st_get("wifi_join", 0.0) > 0.5 {
+            st_set("wifi_join", 0.0)
+            bind r = wifi_connect(st_get("wifi_ssid", ""), st_get("wifi_pass", ""))
+            st_set("wifi_pass", "")
+            st_set("wifi_msg", str_replace(r, "!", ""))
         }
     }
 }
