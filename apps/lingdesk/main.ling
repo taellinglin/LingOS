@@ -118,6 +118,7 @@ fn top_bar(w, mx, my) {
     t8(tx + 9.0, 11.0, C_DIM, "mouse")
     px_disc(tx + 70.0, 15.0, 4.0, sel(kbd_ok, 5947498.0, 14704730.0))
     t8(tx + 79.0, 11.0, C_DIM, "kbd")
+    tray_wifi_icon(w)
 }
 
 # ── dock ─────────────────────────────────────────────────────────────────────
@@ -186,6 +187,7 @@ fn status_line(h) {
     # The x86 desktop's bottom-left network line.
     bind ip = os_info("ip")
     bind msg = sel(ip == "", "net: none (plug in Ethernet, console: dhcp)", "net: " + ip)
+    if wifi_joined() { bind msg = "wifi " + wifi_ssid() + sel(ip == "", " (no address yet)", ": " + ip) }
     px_rect(6.0, h - 22.0, len(msg) * 8.0 + 8.0, 16.0, C_DOCK)
     t8(10.0, h - 18.0, C_DIM, msg)
 }
@@ -812,6 +814,173 @@ fn wifi_type() {
     return 0.0
 }
 
+# ── Wi-Fi tray ──────────────────────────────────────────────────────────────
+# A signal icon in the top bar (`w` with nothing focused, or a click, opens
+# it): the joined network with its signal and address, Disconnect / Forget /
+# Settings, and the networks the last scan saw -- click one to join (secured
+# ones ask for the passphrase in the Wi-Fi window).
+bind TRAY_W = 310.0
+
+fn tray_wifi_x(w) {
+    bind clock = clock_str()
+    bind cx = w - len(clock) * 8.0 - 14.0
+    return cx - 150.0 - 44.0
+}
+
+fn wifi_level(dbm) {
+    if dbm >= 0.0 - 55.0 { return 4.0 }
+    if dbm >= 0.0 - 65.0 { return 3.0 }
+    if dbm >= 0.0 - 75.0 { return 2.0 }
+    return 1.0
+}
+
+fn bars(x, y, level, on_col, off_col) {
+    bind i = 0.0
+    while i < 4.0 {
+        px_rect(x + i * 5.0, y + 12.0 - (i + 1.0) * 3.0, 3.0, (i + 1.0) * 3.0, sel(i < level, on_col, off_col))
+        bind i = i + 1.0
+    }
+    return 0.0
+}
+
+fn tray_wifi_icon(w) {
+    bind x = tray_wifi_x(w)
+    if st_get("tray_wifi", 0.0) > 0.5 { px_rrect(x - 6.0, 4.0, 32.0, 22.0, 5.0, C_TITLE) }
+    if !wifi_available() {
+        bars(x, 9.0, 0.0, C_ACCENT, C_BORDER)
+        return 0.0
+    }
+    if wifi_joined() {
+        bars(x, 9.0, wifi_level(wifi_signal()), C_ACCENT, C_BORDER)
+    } else {
+        bars(x, 9.0, 0.0, C_ACCENT, C_BORDER)
+        px_disc(x + 18.0, 19.0, 3.0, 14704730.0)
+    }
+    return 0.0
+}
+
+fn tray_h() {
+    return 118.0 + max(1.0, len(wifi_rows())) * 22.0 + 20.0
+}
+
+fn tray_rect(w) {
+    bind x = min(tray_wifi_x(w) - 160.0, w - TRAY_W - 8.0)
+    return [x, TOP_H + 6.0, TRAY_W, tray_h()]
+}
+
+fn tray_button(x, y, bw, label, mx, my) {
+    bind hot = inside(mx, my, x, y, bw, 24.0)
+    px_rrect(x, y, bw, 24.0, 6.0, sel(hot, C_ACCENT, C_TITLE))
+    t8(x + floor((bw - len(label) * 8.0) / 2.0), y + 8.0, sel(hot, C_PANEL, C_TEXT), label)
+    return 0.0
+}
+
+fn tray_wifi_popup(w, mx, my) {
+    bind r = tray_rect(w)
+    bind x = list_get(r, 0.0)
+    bind y = list_get(r, 1.0)
+    bind h = list_get(r, 3.0)
+    px_rrect(x + 4.0, y + 5.0, TRAY_W, h, 10.0, 0.0, 0.31)
+    px_rrect(x, y, TRAY_W, h, 10.0, C_BORDER)
+    px_rrect(x + 1.0, y + 1.0, TRAY_W - 2.0, h - 2.0, 9.0, C_PANEL)
+    bind cx = x + 14.0
+    bind cy = y + 12.0
+    if !wifi_available() {
+        t8(cx, cy, C_TEXT, "Wi-Fi")
+        t8(cx, cy + 22.0, C_DIM, "no Wi-Fi radio on this board")
+        t8(cx, cy + 40.0, C_DIM, "(Raspberry Pi 5 only)")
+        return 0.0
+    }
+    if wifi_joined() {
+        bars(cx, cy + 2.0, wifi_level(wifi_signal()), C_ACCENT, C_BORDER)
+        t8(cx + 28.0, cy, C_TEXT, wifi_ssid())
+        t8(cx + 28.0, cy + 16.0, C_DIM, "connected  " + num_str(wifi_signal()) + " dBm  " + os_info("ip"))
+    } else {
+        bars(cx, cy + 2.0, 0.0, C_ACCENT, C_BORDER)
+        t8(cx + 28.0, cy, C_TEXT, "Not connected")
+        t8(cx + 28.0, cy + 16.0, C_DIM, str_slice(st_get("wifi_msg", "pick a network below"), 0.0, 32.0))
+    }
+    bind by = cy + 40.0
+    tray_button(cx, by, 100.0, sel(wifi_joined(), "Disconnect", "Scan"), mx, my)
+    tray_button(cx + 110.0, by, 100.0, "Forget", mx, my)
+    tray_button(cx + 220.0, by, 70.0, "Settings", mx, my)
+    px_rect(x + 10.0, by + 34.0, TRAY_W - 20.0, 1.0, C_BORDER)
+    t8(cx, by + 42.0, C_DIM, sel(st_get("wifi_scan", 0.0) > 0.5, "scanning...", "Available networks"))
+    bind rows = wifi_rows()
+    bind ly = by + 60.0
+    bind i = 0.0
+    bind row = ""
+    while i < len(rows) {
+        bind row = list_get(rows, i)
+        if inside(mx, my, x + 8.0, ly - 3.0, TRAY_W - 16.0, 22.0) { px_rrect(x + 8.0, ly - 3.0, TRAY_W - 16.0, 22.0, 5.0, C_TITLE) }
+        bars(cx, ly + 2.0, wifi_level(to_number(wifi_field(row, 1.0))), C_ACCENT, C_BORDER)
+        t8(cx + 28.0, ly + 2.0, sel(wifi_field(row, 0.0) == wifi_ssid(), C_ACCENT, C_TEXT), wifi_field(row, 0.0))
+        t8(x + TRAY_W - 56.0, ly + 2.0, C_DIM, wifi_field(row, 2.0))
+        bind ly = ly + 22.0
+        bind i = i + 1.0
+    }
+    if len(rows) < 0.5 && st_get("wifi_scan", 0.0) < 0.5 { t8(cx, ly + 2.0, C_DIM, "none found - Scan again") }
+    return 0.0
+}
+
+fn tray_wifi_click(mx, my, w, h) {
+    bind r = tray_rect(w)
+    bind x = list_get(r, 0.0)
+    bind y = list_get(r, 1.0)
+    bind cx = x + 14.0
+    bind by = y + 12.0 + 40.0
+    if !wifi_available() { return 0.0 }
+    if inside(mx, my, cx, by, 100.0, 24.0) {
+        if wifi_joined() {
+            wifi_disconnect()
+            st_set("wifi_msg", "disconnected")
+        } else {
+            st_set("wifi_msg", "scanning...")
+            st_set("wifi_scan", 1.0)
+        }
+        return 0.0
+    }
+    if inside(mx, my, cx + 110.0, by, 100.0, 24.0) {
+        wifi_forget()
+        st_set("wifi_msg", "forgot the saved network")
+        return 0.0
+    }
+    if inside(mx, my, cx + 220.0, by, 70.0, 24.0) {
+        st_set("tray_wifi", 0.0)
+        wifi_open(w, h)
+        return 0.0
+    }
+    bind rows = wifi_rows()
+    bind ly = by + 60.0
+    bind i = 0.0
+    while i < len(rows) {
+        if inside(mx, my, x + 8.0, ly - 3.0, TRAY_W - 16.0, 22.0) {
+            st_set("tray_wifi", 0.0)
+            if wifi_field(list_get(rows, i), 2.0) != "open" {
+                wifi_open(w, h)
+                st_set("wifi_scan", 0.0)
+            }
+            st_set("wifi_sel", i)
+            wifi_activate()
+            return 0.0
+        }
+        bind ly = ly + 22.0
+        bind i = i + 1.0
+    }
+    return 0.0
+}
+
+fn tray_wifi_toggle() {
+    bind open = st_get("tray_wifi", 0.0) > 0.5
+    st_set("tray_wifi", sel(open, 0.0, 1.0))
+    st_set("menu", 0.0)
+    if !open && wifi_available() && len(wifi_rows()) < 0.5 && st_get("wifi_scan", 0.0) < 0.5 {
+        st_set("wifi_msg", "scanning...")
+        st_set("wifi_scan", 1.0)
+    }
+    return 0.0
+}
+
 # ── actions ──────────────────────────────────────────────────────────────────
 
 fn splash(w, h, msg) {
@@ -940,6 +1109,8 @@ bind start = do {
         } else if key_pressed("escape") {
             if menu_open {
                 st_set("menu", 0.0)
+            } else if st_get("tray_wifi", 0.0) > 0.5 {
+                st_set("tray_wifi", 0.0)
             } else if st_get("wifi_win", 0.0) > 0.5 && st_get("focus", "") == "wifi" {
                 if st_get("wifi_mode", "") == "pass" { st_set("wifi_mode", "list") } else { st_set("wifi_win", 0.0) }
             } else if st_get("viewer", "") != "" {
@@ -1046,6 +1217,7 @@ bind start = do {
             if key_pressed("right") || key_pressed("tab") { st_set("dock_sel", sel(ds + 1.0 >= len(APP_GLYPH), 0.0, ds + 1.0)) }
             if key_pressed("left") { st_set("dock_sel", sel(ds - 1.0 < 0.0, len(APP_GLYPH) - 1.0, ds - 1.0)) }
             if key_pressed("enter") && st_get("dock_sel", 0.0 - 1.0) >= 0.0 { run_app(st_get("dock_sel", 0.0), w, h) }
+            if key_pressed("w") { tray_wifi_toggle() }
         }
 
         # mouse
@@ -1072,7 +1244,16 @@ bind start = do {
             bind wifi_now = st_get("wifi_win", 0.0) > 0.5
             bind wx = st_get("wifi_x", 0.0)
             bind wy = st_get("wifi_y", 0.0)
-            if menu_open && inside(mx, my, 6.0, 31.0, MENU_W, menu_h()) {
+            bind twx = tray_wifi_x(w)
+            bind tr = tray_rect(w)
+            bind tray_open = st_get("tray_wifi", 0.0) > 0.5
+            if tray_open && inside(mx, my, list_get(tr, 0.0), list_get(tr, 1.0), TRAY_W, list_get(tr, 3.0)) {
+                tray_wifi_click(mx, my, w, h)
+            } else if inside(mx, my, twx - 6.0, 0.0, 32.0, TOP_H) {
+                tray_wifi_toggle()
+            } else if tray_open {
+                st_set("tray_wifi", 0.0)
+            } else if menu_open && inside(mx, my, 6.0, 31.0, MENU_W, menu_h()) {
                 if menu_row_at(mx, my) >= 0.0 { run_app(menu_row_at(mx, my), w, h) }
             } else if viewing && inside(mx, my, vx + VIEW_W - 2.0 * TB, vy, 2.0 * TB, TB) {
                 st_set("viewer", "")
@@ -1196,6 +1377,7 @@ bind start = do {
         if st_get("viewer", "") != "" { viewer_window() }
         dock(w, h, mx, my)
         if st_get("menu", 0.0) > 0.5 { apps_menu(mx, my) }
+        if st_get("tray_wifi", 0.0) > 0.5 { tray_wifi_popup(w, mx, my) }
         status_line(h)
         present()
         # Network work after the frame is on screen (it blocks for seconds).
