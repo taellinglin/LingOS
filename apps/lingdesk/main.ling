@@ -695,9 +695,9 @@ fn settings_tab_network(x, cx, cy, mx, my) {
     wifi_pill(cx + 340.0, cy + 70.0, 100.0, sel(st_get("net_test", 0.0) > 0.5, "testing...", "Test"), mx, my, false)
     bind lines = str_split(st_get("net_test_out", ""), "\n")
     bind li = 0.0
-    while li < len(lines) && li < 5.0 {
+    while li < len(lines) && li < 6.0 {
         bind ln = list_get(lines, li)
-        if ln != "" { t8(cx, cy + 256.0 + li * 16.0, sel(str_find(ln, "fail") >= 0.0 || str_find(ln, "no ") >= 0.0, C_WARN, C_DIM), str_slice(ln, 0.0, 66.0)) }
+        if ln != "" { t8(cx, cy + 252.0 + li * 15.0, sel(str_find(ln, "fail") >= 0.0 || str_find(ln, "no ") >= 0.0, C_WARN, C_DIM), str_slice(ln, 0.0, 66.0)) }
         bind li = li + 1.0
     }
     return 0.0
