@@ -130,6 +130,70 @@ fn win_rect(name) {
     return [st_get("view_x", 0.0), st_get("view_y", 0.0), VIEW_W, VIEW_H]
 }
 
+# Apps suspended with Alt+Tab, as switcher entries "app:<name>".
+fn running_entries() {
+    bind out = []
+    bind r = os_apps_running()
+    bind i = 0.0
+    while i < len(r) {
+        bind out = list_push(out, "app:" + list_get(r, i))
+        bind i = i + 1.0
+    }
+    return out
+}
+
+# What Alt+Tab cycles: the windows (top first comes from the caller), then running apps.
+fn switch_entries() {
+    # Suspended apps sit under the windows: the top stays the current window
+    # and the first Alt+Tab lands on the previous window, or on the app.
+    bind out = running_entries()
+    bind z = zorder()
+    bind i = 0.0
+    while i < len(z) {
+        bind out = list_push(out, list_get(z, i))
+        bind i = i + 1.0
+    }
+    return out
+}
+
+# Switch to an entry: a window is raised, a suspended app resumed.
+fn switch_to(entry) {
+    if str_starts_with(entry, "app:") {
+        bind k = 0.0
+        while k < len(APP_KIND) {
+            if list_get(APP_KIND, k) == entry { run_app(k, get_width(), get_height()) }
+            bind k = k + 1.0
+        }
+        return 0.0
+    }
+    win_raise(entry)
+    return 0.0
+}
+
+fn entry_title(entry) {
+    if str_starts_with(entry, "app:") {
+        bind k = 0.0
+        while k < len(APP_KIND) {
+            if list_get(APP_KIND, k) == entry { return list_get(APP_LABEL, k) }
+            bind k = k + 1.0
+        }
+        return entry
+    }
+    return win_title(entry)
+}
+
+fn entry_glyph(entry) {
+    if str_starts_with(entry, "app:") {
+        bind k = 0.0
+        while k < len(APP_KIND) {
+            if list_get(APP_KIND, k) == entry { return list_get(APP_GLYPH, k) }
+            bind k = k + 1.0
+        }
+        return "A"
+    }
+    return win_glyph(entry)
+}
+
 # The open windows bottom to top: the remembered order minus what closed,
 # plus whatever opened since (on top).
 fn zorder() {
@@ -180,7 +244,7 @@ fn win_at(mx, my) {
 
 # Alt+Tab: the open windows as tiles, most recent first, the pick highlighted.
 fn switcher(w, h) {
-    bind z = zorder()
+    bind z = switch_entries()
     bind n = len(z)
     if n < 0.5 { return 0.0 }
     bind tw = 150.0
@@ -209,8 +273,9 @@ fn switcher(w, h) {
         px_disc(tx + 27.0, ty + 18.0, 2.0, 14704730.0)
         px_disc(tx + 34.0, ty + 18.0, 2.0, 14721098.0)
         px_disc(tx + 41.0, ty + 18.0, 2.0, 5947498.0)
-        t8(tx + tw / 2.0 - 4.0, ty + 42.0, accent(), win_glyph(name))
-        bind title = win_title(name)
+        t8(tx + tw / 2.0 - 4.0, ty + 42.0, accent(), entry_glyph(name))
+        if str_starts_with(name, "app:") { t8(tx + 8.0, ty + 4.0, C_GOOD, "running") }
+        bind title = entry_title(name)
         if len(title) > 17.0 { bind title = str_slice(title, 0.0, 15.0) + ".." }
         t8(tx + floor((tw - len(title) * 8.0) / 2.0), ty + th - 16.0, sel(hot, C_TEXT, C_DIM), title)
         bind k = k + 1.0
@@ -220,7 +285,225 @@ fn switcher(w, h) {
     return 0.0
 }
 
+# Append what was typed since the last poll to the stored string `key`
+# (characters from `ok_chars`, or any printable when it is ""), backspace deletes.
+bind PRINTABLE = " !#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+
+fn typed_into(key, ok_chars) {
+    bind pend = text_poll()
+    bind buf = st_get(key, "")
+    if key_pressed("backspace") && str_len(buf) > 0.0 { bind buf = str_slice(buf, 0.0, str_len(buf) - 1.0) }
+    bind i = 0.0
+    while i < str_len(pend) {
+        bind ch = str_slice(pend, i, 1.0)
+        # (strings compare as numbers in compiled Ling, so membership tests only)
+        bind code = str_find(sel(ok_chars == "", PRINTABLE, ok_chars), ch) >= 0.0
+        if code { bind buf = buf + ch }
+        bind i = i + 1.0
+    }
+    st_set(key, buf)
+    return 0.0
+}
+
+# Typed text into a form: `keys` are its fields in Tab order and `focus` the
+# st key naming the focused field. The stream is handled in order: a Tab moves
+# the focus on, Enter sets "<focus>_enter", and a field focused since the last
+# key ("<focus>_fresh") is replaced by what is typed into it.
+fn form_index(keys, f) {
+    bind k = 0.0
+    while k < len(keys) {
+        if list_get(keys, k) == f { return k }
+        bind k = k + 1.0
+    }
+    return 0.0 - 1.0
+}
+
+fn form_type(keys, focus, ok_chars) {
+    bind pend = text_poll()
+    bind i = 0.0
+    while i < str_len(pend) {
+        bind ch = str_slice(pend, i, 1.0)
+        bind f = st_get(focus, "")
+        if ch == "\t" {
+            bind k = form_index(keys, f) + 1.0
+            st_set(focus, list_get(keys, sel(k >= len(keys), 0.0, k)))
+            st_set(focus + "_fresh", 1.0)
+        } else if ch == "\n" {
+            st_set(focus + "_enter", 1.0)
+        } else if f != "" && str_find(sel(ok_chars == "", PRINTABLE, ok_chars), ch) >= 0.0 {
+            bind cur = sel(st_get(focus + "_fresh", 0.0) > 0.5, "", st_get(f, ""))
+            st_set(f, cur + ch)
+            st_set(focus + "_fresh", 0.0)
+        }
+        bind i = i + 1.0
+    }
+    bind f = st_get(focus, "")
+    if key_pressed("backspace") && f != "" {
+        bind v = st_get(f, "")
+        if str_len(v) > 0.0 { st_set(f, str_slice(v, 0.0, str_len(v) - 1.0)) }
+        st_set(focus + "_fresh", 0.0)
+    }
+    return 0.0
+}
+
+fn stars(n) {
+    bind s = ""
+    bind k = 0.0
+    while k < n {
+        bind s = s + "*"
+        bind k = k + 1.0
+    }
+    return s
+}
+
+fn caret() {
+    return sel(floor(os_uptime() * 2.0) - floor(os_uptime()) * 2.0 < 0.5, "_", " ")
+}
+
+# A text box; `secret` shows stars. Returns whether the pointer is over it.
+fn text_box(x, y, bw, key, focused, secret, mx, my) {
+    px_rrect(x, y, bw, 26.0, 6.0, C_DOCK)
+    px_rrect_outline(x, y, bw, 26.0, 6.0, sel(focused, accent(), C_BORDER))
+    bind v = st_get(key, "")
+    if secret { bind v = stars(str_len(v)) }
+    bind maxc = floor((bw - 16.0) / 8.0)
+    if len(v) > maxc { bind v = str_slice(v, len(v) - maxc, maxc) }
+    t8(x + 8.0, y + 9.0, C_TEXT, v + sel(focused, caret(), ""))
+    return inside(mx, my, x, y, bw, 26.0)
+}
+
+# ── Sign in ──────────────────────────────────────────────────────────────────
+# With LingOS storage on the card the desktop starts locked: the first boot
+# creates the account (Argon2id-hashed in the kernel), later boots sign in.
+# Settings > System locks it again.
+bind LOGIN_W = 460.0
+bind LOGIN_H = 320.0
+
+fn lock_screen() {
+    bind users = os_users()
+    st_set("login_users", users)
+    # No account yet: a blank name to type. Otherwise the signed-in (or first) user, password next.
+    if len(users) < 0.5 {
+        st_set("login_user", "")
+        st_set("login_focus", "login_user")
+    } else {
+        st_set("login_user", sel(list_has(users, os_user()), os_user(), list_get(users, 0.0)))
+        st_set("login_focus", "login_pass")
+    }
+    st_set("login_focus_fresh", 0.0)
+    st_set("login_focus_enter", 0.0)
+    st_set("login_pass", "")
+    st_set("login_pass2", "")
+    st_set("login_msg", "")
+    st_set("locked", 1.0)
+    st_set("menu", 0.0)
+    st_set("switch", 0.0)
+    return 0.0
+}
+
+fn login_submit() {
+    bind users = st_get("login_users", [])
+    bind user = st_get("login_user", "")
+    bind pass = st_get("login_pass", "")
+    if len(users) < 0.5 {
+        if user == "" {
+            st_set("login_msg", "pick a user name (letters, digits, - or _)")
+            return 0.0
+        }
+        if str_len(pass) < 4.0 {
+            st_set("login_msg", "the password needs at least 4 characters")
+            return 0.0
+        }
+        if pass != st_get("login_pass2", "") {
+            st_set("login_msg", "the two passwords differ")
+            return 0.0
+        }
+        if os_user_create(user, pass) {
+            st_set("locked", 0.0)
+            st_set("login_pass", "")
+            st_set("login_pass2", "")
+        } else {
+            st_set("login_msg", "could not create the account (name taken, or storage not writable)")
+        }
+        return 0.0
+    }
+    if os_login(user, pass) {
+        st_set("locked", 0.0)
+        st_set("login_pass", "")
+    } else {
+        st_set("login_msg", "wrong password")
+        st_set("login_pass", "")
+    }
+    return 0.0
+}
+
+fn login_frame(w, h, mx, my, click) {
+    wallpaper(w, h)
+    bind users = st_get("login_users", [])
+    bind creating = len(users) < 0.5
+    bind x = floor((w - LOGIN_W) / 2.0)
+    bind y = floor((h - LOGIN_H) / 2.0) - 20.0
+    px_rrect(x + 4.0, y + 6.0, LOGIN_W, LOGIN_H, 8.0, 0.0, 0.4)
+    px_rrect(x, y, LOGIN_W, LOGIN_H, 8.0, C_BORDER)
+    px_rrect(x + 1.0, y + 1.0, LOGIN_W - 2.0, LOGIN_H - 2.0, 7.0, C_PANEL)
+    px_rect(x + 1.0, y + 1.0, LOGIN_W - 2.0, 3.0, accent())
+    px_text8(x + 24.0, y + 22.0, accent(), "LingOS", 2.0)
+    t8(x + 24.0, y + 48.0, C_DIM, sel(creating, "Welcome -- create your account", "Sign in"))
+    bind focus = st_get("login_focus", "login_user")
+    bind fy = y + 80.0
+    t8(x + 24.0, fy + 9.0, C_TEXT, "User")
+    bind hot0 = text_box(x + 120.0, fy, LOGIN_W - 144.0, "login_user", focus == "login_user", false, mx, my)
+    t8(x + 24.0, fy + 45.0, C_TEXT, "Password")
+    bind hot1 = text_box(x + 120.0, fy + 36.0, LOGIN_W - 144.0, "login_pass", focus == "login_pass", true, mx, my)
+    bind hot2 = false
+    if creating {
+        t8(x + 24.0, fy + 81.0, C_TEXT, "Again")
+        bind hot2 = text_box(x + 120.0, fy + 72.0, LOGIN_W - 144.0, "login_pass2", focus == "login_pass2", true, mx, my)
+    } else if len(users) > 1.5 {
+        t8(x + 24.0, fy + 78.0, C_DIM, "Up / Down: other users")
+    }
+    bind by = y + LOGIN_H - 64.0
+    bind bhot = wifi_pill(x + LOGIN_W - 24.0 - 120.0, by, 120.0, sel(creating, "Create", "Sign in"), mx, my, true)
+    t8(x + 24.0, by + 9.0, sel(st_get("login_msg", "") == "", C_DIM, C_BAD), sel(st_get("login_msg", "") == "", "Enter: continue   Tab: next field", st_get("login_msg", "")))
+    t8(x + 24.0, y + LOGIN_H - 24.0, C_DIM, "passwords are stored Argon2id-hashed on the SD card")
+    if click {
+        if hot0 && creating {
+            st_set("login_focus", "login_user")
+            st_set("login_focus_fresh", 1.0)
+        }
+        if hot1 {
+            st_set("login_focus", "login_pass")
+            st_set("login_focus_fresh", 1.0)
+        }
+        if hot2 {
+            st_set("login_focus", "login_pass2")
+            st_set("login_focus_fresh", 1.0)
+        }
+        if bhot { login_submit() }
+    }
+    bind keys = sel(creating, ["login_user", "login_pass", "login_pass2"], ["login_pass"])
+    # The name is letters, digits, - and _; passwords any printable character.
+    form_type(keys, "login_focus", sel(st_get("login_focus", "") == "login_user", "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_", ""))
+    if !creating && len(users) > 1.5 && (key_pressed("down") || key_pressed("up")) {
+        bind cur = 0.0
+        bind k = 0.0
+        while k < len(users) {
+            if list_get(users, k) == st_get("login_user", "") { bind cur = k }
+            bind k = k + 1.0
+        }
+        bind cur = cur + sel(key_pressed("down"), 1.0, len(users) - 1.0)
+        st_set("login_user", list_get(users, cur - floor(cur / len(users)) * len(users)))
+    }
+    if st_get("login_focus_enter", 0.0) > 0.5 {
+        st_set("login_focus_enter", 0.0)
+        login_submit()
+    }
+    return 0.0
+}
+
 # ── Settings ─────────────────────────────────────────────────────────────────
+bind SET_TABS = ["Appearance", "Dock", "Sound", "Network", "System"]
+
 fn settings_path() {
     return fs_join(fs_join(fs_join(fs_home(), "Programs"), "LingOS"), "desktop.conf")
 }
@@ -232,23 +515,54 @@ fn settings_load() {
     while i < len(lines) {
         bind kv = str_split(list_get(lines, i), "=")
         if len(kv) == 2.0 {
-            if list_get(kv, 0.0) == "accent" { st_set("accent", min(6.0, max(0.0, to_number(list_get(kv, 1.0))))) }
-            if list_get(kv, 0.0) == "dock_auto" { st_set("dock_auto", to_number(list_get(kv, 1.0))) }
+            bind k = list_get(kv, 0.0)
+            bind v = list_get(kv, 1.0)
+            if k == "accent" { st_set("accent", min(6.0, max(0.0, to_number(v)))) }
+            if k == "dock_auto" { st_set("dock_auto", to_number(v)) }
+            if k == "pause_audio" { st_set("pause_audio", to_number(v)) }
+            if k == "net_mode" { st_set("net_mode", v) }
+            if k == "net_ip" { st_set("net_ip", v) }
+            if k == "net_mask" { st_set("net_mask", v) }
+            if k == "net_gw" { st_set("net_gw", v) }
+            if k == "net_dns" { st_set("net_dns", v) }
         }
         bind i = i + 1.0
     }
+    settings_apply()
+    return 0.0
+}
+
+# Put the loaded (or just changed) settings into effect in the kernel.
+fn settings_apply() {
+    os_option("pause_audio", st_get("pause_audio", 1.0) > 0.5)
+    if st_get("net_mode", "dhcp") == "static" {
+        st_set("net_msg", os_net_set("static", st_get("net_ip", ""), st_get("net_mask", ""), st_get("net_gw", ""), st_get("net_dns", "")))
+    }
+    return 0.0
+}
+
+# The live network state into the fields that are still empty.
+fn net_prefill() {
+    bind parts = str_split(os_net_get(), "\t")
+    if len(parts) < 5.0 { return 0.0 }
+    if st_get("net_ip", "") == "" { st_set("net_ip", list_get(parts, 1.0)) }
+    if st_get("net_mask", "") == "" { st_set("net_mask", list_get(parts, 2.0)) }
+    if st_get("net_gw", "") == "" { st_set("net_gw", list_get(parts, 3.0)) }
+    if st_get("net_dns", "") == "" { st_set("net_dns", list_get(parts, 4.0)) }
     return 0.0
 }
 
 fn settings_save() {
     fs_mkdir(fs_join(fs_home(), "Programs"))
     fs_mkdir(fs_join(fs_join(fs_home(), "Programs"), "LingOS"))
-    write_file(settings_path(), "accent=" + num_str(st_get("accent", 4.0)) + "\ndock_auto=" + num_str(st_get("dock_auto", 1.0)) + "\n")
+    write_file(settings_path(), "accent=" + num_str(st_get("accent", 4.0)) + "\ndock_auto=" + num_str(st_get("dock_auto", 1.0)) + "\npause_audio=" + num_str(st_get("pause_audio", 1.0)) + "\nnet_mode=" + st_get("net_mode", "dhcp") + "\nnet_ip=" + st_get("net_ip", "") + "\nnet_mask=" + st_get("net_mask", "") + "\nnet_gw=" + st_get("net_gw", "") + "\nnet_dns=" + st_get("net_dns", "") + "\n")
     return 0.0
 }
 
 fn settings_open(w, h) {
     st_set("set_win", 1.0)
+    st_set("set_field", "")
+    net_prefill()
     st_set("set_x", floor((w - SET_W) / 2.0) + 20.0)
     st_set("set_y", floor((h - SET_H) / 2.0 - 30.0))
     win_raise("settings")
@@ -259,20 +573,54 @@ fn settings_swatch_x(x, i) {
     return x + 40.0 + i * 70.0
 }
 
+fn settings_tab_x(x, i) {
+    bind tx = x + 16.0
+    bind k = 0.0
+    while k < i {
+        bind tx = tx + len(list_get(SET_TABS, k)) * 8.0 + 26.0
+        bind k = k + 1.0
+    }
+    return tx
+}
+
 fn settings_window(mx, my) {
     bind x = st_get("set_x", 0.0)
     bind y = st_get("set_y", 0.0)
     window_frame(x, y, SET_W, SET_H, "Settings", st_get("focus", "") == "settings")
+    bind tab = st_get("set_tab", 0.0)
+    bind ty = y + TB + 10.0
+    bind k = 0.0
+    while k < len(SET_TABS) {
+        bind nm = list_get(SET_TABS, k)
+        bind tx = settings_tab_x(x, k)
+        bind tw = len(nm) * 8.0 + 18.0
+        if k == tab {
+            px_rrect(tx, ty, tw, 24.0, 6.0, C_TITLE)
+            px_rect(tx + 6.0, ty + 23.0, tw - 12.0, 2.0, accent())
+        } else if inside(mx, my, tx, ty, tw, 24.0) {
+            px_rrect(tx, ty, tw, 24.0, 6.0, C_TITLE_IDLE)
+        }
+        t8(tx + 9.0, ty + 8.0, sel(k == tab, C_STRONG, C_DIM), nm)
+        bind k = k + 1.0
+    }
+    px_rect(x + 12.0, ty + 32.0, SET_W - 24.0, 1.0, C_BORDER)
     bind cx = x + 20.0
-    bind cy = y + TB + 16.0
-    t8(cx, cy, accent(), "APPEARANCE")
-    px_rect(cx + 96.0, cy + 4.0, SET_W - 136.0, 1.0, C_BORDER)
-    t8(cx, cy + 22.0, C_TEXT, "Accent colour")
+    bind cy = ty + 48.0
+    if tab == 0.0 { settings_tab_appearance(x, cx, cy, mx, my) }
+    if tab == 1.0 { settings_tab_dock(cx, cy, mx, my) }
+    if tab == 2.0 { settings_tab_sound(cx, cy, mx, my) }
+    if tab == 3.0 { settings_tab_network(x, cx, cy, mx, my) }
+    if tab == 4.0 { settings_tab_system(cx, cy, mx, my) }
+    return 0.0
+}
+
+fn settings_tab_appearance(x, cx, cy, mx, my) {
+    t8(cx, cy, C_TEXT, "Accent colour")
     bind cur = st_get("accent", 4.0)
     bind i = 0.0
     while i < 7.0 {
         bind sx = settings_swatch_x(x, i)
-        bind sy = cy + 58.0
+        bind sy = cy + 40.0
         bind hot = inside(mx, my, sx - 16.0, sy - 16.0, 32.0, 32.0)
         if i == cur { px_ring(sx, sy, 16.0, C_STRONG) }
         if hot && i != cur { px_ring(sx, sy, 16.0, C_DIM) }
@@ -281,57 +629,179 @@ fn settings_window(mx, my) {
         t8(sx - len(nm) * 4.0, sy + 24.0, sel(i == cur, C_STRONG, C_DIM), nm)
         bind i = i + 1.0
     }
-    t8(cx, cy + 112.0, C_TEXT, "Wallpaper")
-    t8(cx + 120.0, cy + 112.0, C_DIM, "Ling Country (the desktop keeps it)")
-    t8(cx, cy + 128.0, C_TEXT, "Windows")
-    t8(cx + 120.0, cy + 128.0, C_DIM, "LingStationX / LingDev chrome")
+    t8(cx, cy + 100.0, C_TEXT, "Wallpaper")
+    t8(cx + 120.0, cy + 100.0, C_DIM, "Ling Country (the desktop keeps it)")
+    t8(cx, cy + 118.0, C_TEXT, "Windows")
+    t8(cx + 120.0, cy + 118.0, C_DIM, "LingStationX / LingDev chrome")
+    t8(cx, cy + 136.0, C_TEXT, "Font")
+    t8(cx + 120.0, cy + 136.0, C_DIM, "the 8x8 pixel UI font")
+    return 0.0
+}
 
-    bind dy = cy + 160.0
-    t8(cx, dy, accent(), "DOCK")
-    px_rect(cx + 48.0, dy + 4.0, SET_W - 88.0, 1.0, C_BORDER)
+fn toggle(x, y, on, label, mx, my) {
+    px_rrect(x, y, 44.0, 22.0, 11.0, sel(on, accent(), C_BORDER))
+    px_disc(x + sel(on, 33.0, 11.0), y + 11.0, 8.0, C_STRONG)
+    t8(x + 56.0, y + 7.0, C_TEXT, label)
+    return inside(mx, my, x, y, 44.0 + 12.0 + len(label) * 8.0, 22.0)
+}
+
+fn settings_tab_dock(cx, cy, mx, my) {
     bind auto = st_get("dock_auto", 1.0) > 0.5
-    bind tog_x = cx
-    bind tog_y = dy + 20.0
-    px_rrect(tog_x, tog_y, 44.0, 22.0, 11.0, sel(auto, accent(), C_BORDER))
-    px_disc(tog_x + sel(auto, 33.0, 11.0), tog_y + 11.0, 8.0, C_STRONG)
-    t8(tog_x + 56.0, tog_y + 7.0, C_TEXT, sel(auto, "Hide the dock until the pointer touches the bottom edge", "Dock always shown"))
-    t8(cx, tog_y + 34.0, C_DIM, "Left / Right / Tab bring it out; windows move up out of its way")
+    toggle(cx, cy, auto, sel(auto, "Hide the dock until the pointer touches the bottom edge", "Dock always shown"), mx, my)
+    t8(cx, cy + 36.0, C_DIM, "Left / Right / Tab bring it out; windows move up out of its way")
+    t8(cx, cy + 70.0, C_TEXT, "Alt+Tab")
+    t8(cx + 120.0, cy + 70.0, C_DIM, "switches between windows and running apps")
+    t8(cx, cy + 88.0, C_TEXT, "In an app")
+    t8(cx + 120.0, cy + 88.0, C_DIM, "Alt+Tab comes back here with the app kept running;")
+    t8(cx + 120.0, cy + 104.0, C_DIM, "Ctrl+Q closes it")
+    return 0.0
+}
 
-    bind sy2 = dy + 90.0
-    t8(cx, sy2, accent(), "SYSTEM")
-    px_rect(cx + 64.0, sy2 + 4.0, SET_W - 104.0, 1.0, C_BORDER)
-    tray_button(cx, sy2 + 20.0, 150.0, "Setup wizard", mx, my)
-    tray_button(cx + 160.0, sy2 + 20.0, 110.0, "Console", mx, my)
-    tray_button(cx + 280.0, sy2 + 20.0, 110.0, "About", mx, my)
-    t8(cx, sy2 + 56.0, C_DIM, "Alt+Tab switches windows    Super: Applications    w: Wi-Fi")
+fn settings_tab_sound(cx, cy, mx, my) {
+    bind pa = st_get("pause_audio", 1.0) > 0.5
+    toggle(cx, cy, pa, "Pause LingStationX's music when it is suspended or closed", mx, my)
+    t8(cx, cy + 36.0, C_DIM, sel(pa, "Alt+Tab out of LingStationX silences the transport; Play resumes it", "the music keeps playing under the desktop"))
+    t8(cx, cy + 70.0, C_TEXT, "Output")
+    t8(cx + 120.0, cy + 70.0, C_DIM, "HDMI, 48 kHz stereo (apps mix their own levels)")
+    tray_button(cx, cy + 100.0, 110.0, "Test tone", mx, my)
+    return 0.0
+}
+
+fn settings_tab_network(x, cx, cy, mx, my) {
+    bind static = st_get("net_mode", "dhcp") == "static"
+    t8(cx, cy, C_TEXT, "Address")
+    bind p1 = wifi_pill(cx + 120.0, cy - 7.0, 150.0, "Automatic (DHCP)", mx, my, !static)
+    bind p2 = wifi_pill(cx + 280.0, cy - 7.0, 90.0, "Static", mx, my, static)
+    bind labels = ["IP address", "Netmask", "Gateway", "DNS"]
+    bind keys = ["net_ip", "net_mask", "net_gw", "net_dns"]
+    bind i = 0.0
+    while i < 4.0 {
+        bind fy = cy + 36.0 + i * 34.0
+        t8(cx, fy + 9.0, sel(static, C_TEXT, C_DIM), list_get(labels, i))
+        text_box(cx + 120.0, fy, 200.0, list_get(keys, i), static && st_get("set_field", "") == list_get(keys, i), false, mx, my)
+        bind i = i + 1.0
+    }
+    wifi_pill(cx + 340.0, cy + 36.0, 100.0, "Apply", mx, my, true)
+    bind ip = os_info("ip")
+    t8(cx, cy + 176.0, C_DIM, "now: " + sel(ip == "", "no address", ip) + sel(static, "  (static)", "  (DHCP unless a static address is set)"))
+    bind msg = st_get("net_msg", "")
+    if msg != "" { t8(cx, cy + 194.0, C_TEXT, str_slice(msg, 0.0, 64.0)) }
+    return 0.0
+}
+
+fn settings_tab_system(cx, cy, mx, my) {
+    bind ready = os_storage_ready()
+    t8(cx, cy, C_TEXT, "Signed in")
+    t8(cx + 120.0, cy, C_DIM, sel(os_user() == "", "nobody (no storage)", os_user()))
+    t8(cx, cy + 18.0, C_TEXT, "Storage")
+    t8(cx + 120.0, cy + 18.0, sel(ready, C_DIM, C_WARN), sel(ready, "LingOS storage on the SD card", "none yet: settings, accounts and projects will not survive a reboot"))
+    bind by = cy + 48.0
+    tray_button(cx, by, 150.0, "Lock screen", mx, my)
+    tray_button(cx + 160.0, by, 150.0, "Setup wizard", mx, my)
+    tray_button(cx + 320.0, by, 110.0, "Console", mx, my)
+    if !ready { tray_button(cx, by + 34.0, 230.0, "Set up storage (sd format)", mx, my) }
+    tray_button(cx + sel(ready, 0.0, 240.0), by + 34.0, 110.0, "About", mx, my)
+    t8(cx, by + 76.0, C_DIM, "Set up storage uses the free space after the boot partition (the console asks).")
+    t8(cx, by + 100.0, C_DIM, "Alt+Tab switches windows    Super: Applications    w: Wi-Fi")
     return 0.0
 }
 
 fn settings_click(mx, my, w, h) {
     bind x = st_get("set_x", 0.0)
     bind y = st_get("set_y", 0.0)
-    bind cy = y + TB + 16.0
-    bind i = 0.0
-    while i < 7.0 {
-        if inside(mx, my, settings_swatch_x(x, i) - 16.0, cy + 42.0, 32.0, 32.0) {
-            st_set("accent", i)
-            settings_save()
+    bind ty = y + TB + 10.0
+    bind k = 0.0
+    while k < len(SET_TABS) {
+        bind tx = settings_tab_x(x, k)
+        if inside(mx, my, tx, ty, len(list_get(SET_TABS, k)) * 8.0 + 18.0, 24.0) {
+            st_set("set_tab", k)
+            st_set("set_field", "")
         }
-        bind i = i + 1.0
+        bind k = k + 1.0
     }
-    bind dy = cy + 160.0
-    if inside(mx, my, x + 20.0, dy + 20.0, 44.0 + 400.0, 22.0) {
+    bind tab = st_get("set_tab", 0.0)
+    bind cx = x + 20.0
+    bind cy = ty + 48.0
+    if tab == 0.0 {
+        bind i = 0.0
+        while i < 7.0 {
+            if inside(mx, my, settings_swatch_x(x, i) - 16.0, cy + 24.0, 32.0, 32.0) {
+                st_set("accent", i)
+                settings_save()
+            }
+            bind i = i + 1.0
+        }
+    }
+    if tab == 1.0 && inside(mx, my, cx, cy, 500.0, 22.0) {
         st_set("dock_auto", sel(st_get("dock_auto", 1.0) > 0.5, 0.0, 1.0))
         settings_save()
     }
-    bind sy2 = dy + 90.0
-    if inside(mx, my, x + 20.0, sy2 + 20.0, 150.0, 24.0) { os_setup() }
-    if inside(mx, my, x + 180.0, sy2 + 20.0, 110.0, 24.0) { os_console("") }
-    if inside(mx, my, x + 300.0, sy2 + 20.0, 110.0, 24.0) {
-        st_set("about", 1.0)
-        st_set("about_x", floor((w - ABOUT_W) / 2.0) - 40.0)
-        st_set("about_y", floor((h - ABOUT_H) / 2.0))
-        win_raise("about")
+    if tab == 2.0 {
+        if inside(mx, my, cx, cy, 520.0, 22.0) {
+            st_set("pause_audio", sel(st_get("pause_audio", 1.0) > 0.5, 0.0, 1.0))
+            settings_apply()
+            settings_save()
+        }
+        if inside(mx, my, cx, cy + 100.0, 110.0, 24.0) { os_console("hdmiaudio") }
+    }
+    if tab == 3.0 {
+        if inside(mx, my, cx + 120.0, cy - 7.0, 150.0, 26.0) {
+            st_set("net_mode", "dhcp")
+            st_set("set_field", "")
+            st_set("net_msg", os_net_set("dhcp", "", "", "", ""))
+            settings_save()
+        }
+        if inside(mx, my, cx + 280.0, cy - 7.0, 90.0, 26.0) {
+            st_set("net_mode", "static")
+            st_set("set_field", "net_ip")
+            st_set("set_field_fresh", 1.0)
+        }
+        bind keys = ["net_ip", "net_mask", "net_gw", "net_dns"]
+        bind i = 0.0
+        while i < 4.0 {
+            if st_get("net_mode", "dhcp") == "static" && inside(mx, my, cx + 120.0, cy + 36.0 + i * 34.0, 200.0, 26.0) {
+                st_set("set_field", list_get(keys, i))
+                st_set("set_field_fresh", 1.0)
+            }
+            bind i = i + 1.0
+        }
+        if inside(mx, my, cx + 340.0, cy + 36.0, 100.0, 26.0) { settings_net_apply() }
+    }
+    if tab == 4.0 {
+        bind by = cy + 48.0
+        bind ready = os_storage_ready()
+        if inside(mx, my, cx, by, 150.0, 24.0) { lock_screen() }
+        if inside(mx, my, cx + 160.0, by, 150.0, 24.0) { os_setup() }
+        if inside(mx, my, cx + 320.0, by, 110.0, 24.0) { os_console("") }
+        if !ready && inside(mx, my, cx, by + 34.0, 230.0, 24.0) { os_console("sd format") }
+        if inside(mx, my, cx + sel(ready, 0.0, 240.0), by + 34.0, 110.0, 24.0) {
+            st_set("about", 1.0)
+            st_set("about_x", floor((w - ABOUT_W) / 2.0) - 40.0)
+            st_set("about_y", floor((h - ABOUT_H) / 2.0))
+            win_raise("about")
+        }
+    }
+    return 0.0
+}
+
+fn settings_net_apply() {
+    if st_get("net_mode", "dhcp") == "static" {
+        st_set("net_msg", os_net_set("static", st_get("net_ip", ""), st_get("net_mask", ""), st_get("net_gw", ""), st_get("net_dns", "")))
+    } else {
+        st_set("net_msg", os_net_set("dhcp", "", "", "", ""))
+    }
+    settings_save()
+    return 0.0
+}
+
+# Keys while the Settings window has the focus: typing into the network fields.
+fn settings_keys() {
+    if st_get("set_tab", 0.0) == 3.0 && st_get("set_field", "") != "" {
+        form_type(["net_ip", "net_mask", "net_gw", "net_dns"], "set_field", "0123456789.")
+        if st_get("set_field_enter", 0.0) > 0.5 {
+            st_set("set_field_enter", 0.0)
+            settings_net_apply()
+        }
     }
     return 0.0
 }
@@ -551,8 +1021,9 @@ fn dock(w, h, mx, my) {
         bind g = list_get(APP_GLYPH, i)
         bind gs = sel(sz >= 48.0, 3.0, 2.0)
         px_text8(dx + (sz - len(g) * 8.0 * gs) / 2.0, dy + (sz - 8.0 * gs) / 2.0, C_TEXT, g, gs)
-        if list_get(APP_KIND, i) == "about" && st_get("about", 0.0) > 0.5 {
-            px_disc(dx + sz / 2.0, dy + sz + 7.0, 3.0, accent())
+        bind kind = list_get(APP_KIND, i)
+        if (kind == "about" && st_get("about", 0.0) > 0.5) || list_has(running_entries(), kind) {
+            px_disc(dx + sz / 2.0, dy + sz + 7.0, 3.0, sel(kind == "about", accent(), C_GOOD))
         }
         bind i = i + 1.0
     }
@@ -1584,6 +2055,10 @@ fn run_app(i, w, h) {
     }
     # a built-in app is only there when its kernel target bundled it (rpi-lingstation / rpi-lingdev)
     bind app = str_replace(kind, "app:", "")
+    if list_has(os_apps_running(), app) {
+        os_app_resume(app)
+        return 0.0
+    }
     bind have = os_apps()
     bind found = false
     bind k = 0.0
@@ -1638,6 +2113,7 @@ bind start = do {
     st_set("kbd_info", os_info("keyboard"))
     settings_load()
     st_set("dock_key_t", os_uptime() + 2.0)
+    if os_storage_ready() { lock_screen() }
     bind prev_down = false
     while window_is_open() {
         bind w = get_width()
@@ -1654,366 +2130,373 @@ bind start = do {
         bind down = mouse_down()
         bind click = down && !prev_down
         bind prev_down = down
-        bind menu_open = st_get("menu", 0.0) > 0.5
-        bind about_open = st_get("about", 0.0) > 0.5
+        if st_get("locked", 0.0) > 0.5 {
+            login_frame(w, h, mx, my, click)
+            present()
+        } else {
+            bind menu_open = st_get("menu", 0.0) > 0.5
+            bind about_open = st_get("about", 0.0) > 0.5
 
-        # The dock slides out when the pointer touches the bottom edge (or the
-        # keyboard walks it), stays while the pointer is over it, slides back after.
-        bind dv = st_get("dock_vis", 0.0)
-        bind want = st_get("dock_auto", 1.0) < 0.5 || my >= h - 3.0 || (dv > 0.5 && my >= dock_y(h) - 14.0) || os_uptime() - st_get("dock_key_t", 0.0 - 9.0) < 2.5
-        if st_get("dragging", 0.0) > 0.5 { bind want = dv > 0.5 }
-        st_set("dock_vis", sel(want, min(1.0, dv + 0.2), max(0.0, dv - 0.1)))
+            # The dock slides out when the pointer touches the bottom edge (or the
+            # keyboard walks it), stays while the pointer is over it, slides back after.
+            bind dv = st_get("dock_vis", 0.0)
+            bind want = st_get("dock_auto", 1.0) < 0.5 || my >= h - 3.0 || (dv > 0.5 && my >= dock_y(h) - 14.0) || os_uptime() - st_get("dock_key_t", 0.0 - 9.0) < 2.5
+            if st_get("dragging", 0.0) > 0.5 { bind want = dv > 0.5 }
+            st_set("dock_vis", sel(want, min(1.0, dv + 0.2), max(0.0, dv - 0.1)))
 
-        # Alt+Tab cycles the open windows, most recent first; let go of Alt
-        # to land on the highlighted one (Shift+Tab goes back).
-        bind z = zorder()
-        if key_down("alt") && key_pressed("tab") && len(z) > 1.5 {
-            if st_get("switch", 0.0) < 0.5 {
-                st_set("switch", 1.0)
-                st_set("switch_i", 1.0)
-            } else {
-                bind n = len(z)
-                bind pick = st_get("switch_i", 0.0) + sel(key_down("shift"), n - 1.0, 1.0)
-                st_set("switch_i", pick - floor(pick / n) * n)
-            }
-            st_set("menu", 0.0)
-        } else if st_get("switch", 0.0) > 0.5 && !key_down("alt") {
-            st_set("switch", 0.0)
-            bind pick = st_get("switch_i", 0.0)
-            if pick >= 0.0 && pick < len(z) { win_raise(list_get(z, len(z) - 1.0 - pick)) }
-        }
-
-        # keyboard
-        if key_pressed("super") {
-            st_set("menu", sel(menu_open, 0.0, 1.0))
-        } else if key_pressed("escape") {
-            if st_get("switch", 0.0) > 0.5 {
-                st_set("switch", 0.0)
-            } else if menu_open {
-                st_set("menu", 0.0)
-            } else if st_get("tray_wifi", 0.0) > 0.5 {
-                st_set("tray_wifi", 0.0)
-            } else if st_get("wifi_win", 0.0) > 0.5 && st_get("focus", "") == "wifi" {
-                if st_get("wifi_mode", "") == "pass" { st_set("wifi_mode", "list") } else { st_set("wifi_win", 0.0) }
-            } else if st_get("viewer", "") != "" {
-                st_set("viewer", "")
-                win_raise("files")
-            } else if st_get("pkgs_win", 0.0) > 0.5 && st_get("focus", "") == "packages" {
-                st_set("pkgs_win", 0.0)
-            } else if st_get("files", 0.0) > 0.5 && st_get("focus", "") == "files" {
-                st_set("files", 0.0)
-            } else if st_get("set_win", 0.0) > 0.5 && st_get("focus", "") == "settings" {
-                st_set("set_win", 0.0)
-            } else if about_open && st_get("focus", "") == "about" {
-                st_set("about", 0.0)
-            } else {
-                st_set("menu", 1.0)
-            }
-        }
-        bind menu_open = st_get("menu", 0.0) > 0.5
-        if st_get("switch", 0.0) > 0.5 {
-            st_set("switch", 1.0)
-        } else if menu_open {
-            if key_pressed("down") { menu_step(1.0) }
-            if key_pressed("up") { menu_step(0.0 - 1.0) }
-            if key_pressed("enter") { run_app(st_get("menu_sel", 0.0), w, h) }
-        } else if st_get("wifi_win", 0.0) > 0.5 && st_get("focus", "") == "wifi" {
-            if st_get("wifi_mode", "") == "pass" {
-                wifi_type()
-                if key_pressed("enter") {
-                    st_set("wifi_mode", "list")
-                    st_set("wifi_msg", "joining " + st_get("wifi_ssid", "") + "...")
-                    st_set("wifi_join", 1.0)
-                }
-            } else {
-                bind nw = len(wifi_rows())
-                if key_pressed("down") { st_set("wifi_sel", min(st_get("wifi_sel", 0.0) + 1.0, max(nw - 1.0, 0.0))) }
-                if key_pressed("up") { st_set("wifi_sel", max(st_get("wifi_sel", 0.0) - 1.0, 0.0)) }
-                if key_pressed("enter") { wifi_activate() }
-                if key_pressed("r") {
-                    st_set("wifi_msg", "scanning...")
-                    st_set("wifi_scan", 1.0)
-                }
-                if key_pressed("f") {
-                    wifi_forget()
-                    st_set("wifi_msg", "forgot the saved network")
-                }
-            }
-        } else if st_get("pkgs_win", 0.0) > 0.5 && st_get("focus", "") == "packages" {
-            bind nv = len(pk_visible())
-            if key_pressed("down") { st_set("pk_sel", min(st_get("pk_sel", 0.0) + 1.0, max(nv - 1.0, 0.0))) }
-            if key_pressed("up") { st_set("pk_sel", max(st_get("pk_sel", 0.0) - 1.0, 0.0)) }
-            if key_pressed("enter") { pk_activate() }
-            if key_pressed("tab") {
-                st_set("pk_tab", sel(st_get("pk_tab", 0.0) > 0.5, 0.0, 1.0))
-                st_set("pk_sel", 0.0)
-                st_set("pk_scroll", 0.0)
-            }
-            if key_pressed("s") {
-                st_set("pk_msg", "resyncing the catalog...")
-                st_set("pk_load", 1.0)
-            }
-            pk_keep_visible()
-        } else if st_get("files", 0.0) > 0.5 && st_get("focus", "") == "files" {
-            bind nf = len(files_items()) / 2.0
-            if key_pressed("down") { st_set("fsel", min(st_get("fsel", 0.0) + 1.0, max(nf - 1.0, 0.0))) }
-            if key_pressed("up") { st_set("fsel", max(st_get("fsel", 0.0) - 1.0, 0.0)) }
-            if key_pressed("enter") { files_activate(st_get("fsel", 0.0)) }
-            if key_pressed("backspace") { files_up() }
-            if key_pressed("h") {
-                st_set("fdir", home_dir())
-                st_set("fsel", 0.0)
-            }
-            if key_pressed("c") || key_pressed("x") {
-                bind p = files_sel_path()
-                if p != "" {
-                    bind cut = key_pressed("x")
-                    st_set("clip", p)
-                    st_set("clip_cut", sel(cut, 1.0, 0.0))
-                    st_set("fmsg", sel(cut, "cut: ", "copied: ") + p + "   (v pastes into the open folder)")
-                }
-            }
-            if key_pressed("v") && st_get("clip", "") != "" {
-                bind src = st_get("clip", "")
-                bind dst = files_join(st_get("fdir", home_dir()), fs_basename(src))
-                bind cut = st_get("clip_cut", 0.0) > 0.5
-                bind ok = 0.0
-                if cut { bind ok = fs_move(src, dst) } else { bind ok = fs_copy(src, dst) }
-                if ok > 0.5 {
-                    st_set("fmsg", sel(cut, "moved to ", "copied to ") + dst)
-                    if cut { st_set("clip", "") }
+            # Alt+Tab cycles the open windows, most recent first; let go of Alt
+            # to land on the highlighted one (Shift+Tab goes back).
+            bind z = switch_entries()
+            if key_down("alt") && key_pressed("tab") && len(z) > 1.5 {
+                if st_get("switch", 0.0) < 0.5 {
+                    st_set("switch", 1.0)
+                    st_set("switch_i", 1.0)
                 } else {
-                    st_set("fmsg", "could not write " + dst + " (is this folder on a USB drive or the SD card?)")
+                    bind n = len(z)
+                    bind pick = st_get("switch_i", 0.0) + sel(key_down("shift"), n - 1.0, 1.0)
+                    st_set("switch_i", pick - floor(pick / n) * n)
+                }
+                st_set("menu", 0.0)
+            } else if st_get("switch", 0.0) > 0.5 && !key_down("alt") {
+                st_set("switch", 0.0)
+                bind pick = st_get("switch_i", 0.0)
+                if pick >= 0.0 && pick < len(z) { switch_to(list_get(z, len(z) - 1.0 - pick)) }
+            }
+
+            # keyboard
+            if key_pressed("super") {
+                st_set("menu", sel(menu_open, 0.0, 1.0))
+            } else if key_pressed("escape") {
+                if st_get("switch", 0.0) > 0.5 {
+                    st_set("switch", 0.0)
+                } else if menu_open {
+                    st_set("menu", 0.0)
+                } else if st_get("tray_wifi", 0.0) > 0.5 {
+                    st_set("tray_wifi", 0.0)
+                } else if st_get("wifi_win", 0.0) > 0.5 && st_get("focus", "") == "wifi" {
+                    if st_get("wifi_mode", "") == "pass" { st_set("wifi_mode", "list") } else { st_set("wifi_win", 0.0) }
+                } else if st_get("viewer", "") != "" {
+                    st_set("viewer", "")
+                    win_raise("files")
+                } else if st_get("pkgs_win", 0.0) > 0.5 && st_get("focus", "") == "packages" {
+                    st_set("pkgs_win", 0.0)
+                } else if st_get("files", 0.0) > 0.5 && st_get("focus", "") == "files" {
+                    st_set("files", 0.0)
+                } else if st_get("set_win", 0.0) > 0.5 && st_get("focus", "") == "settings" {
+                    st_set("set_win", 0.0)
+                } else if about_open && st_get("focus", "") == "about" {
+                    st_set("about", 0.0)
+                } else {
+                    st_set("menu", 1.0)
                 }
             }
-            if key_pressed("delete") {
-                bind p = files_sel_path()
-                if p != "" {
-                    if fs_delete(p) > 0.5 {
-                        st_set("fmsg", "deleted " + p)
-                        st_set("fsel", max(st_get("fsel", 0.0) - 1.0, 0.0))
-                    } else {
-                        st_set("fmsg", "could not delete " + p + " (folders must be empty; only removable media can be deleted from)")
+            bind menu_open = st_get("menu", 0.0) > 0.5
+            if st_get("switch", 0.0) > 0.5 {
+                st_set("switch", 1.0)
+            } else if menu_open {
+                if key_pressed("down") { menu_step(1.0) }
+                if key_pressed("up") { menu_step(0.0 - 1.0) }
+                if key_pressed("enter") { run_app(st_get("menu_sel", 0.0), w, h) }
+            } else if st_get("wifi_win", 0.0) > 0.5 && st_get("focus", "") == "wifi" {
+                if st_get("wifi_mode", "") == "pass" {
+                    wifi_type()
+                    if key_pressed("enter") {
+                        st_set("wifi_mode", "list")
+                        st_set("wifi_msg", "joining " + st_get("wifi_ssid", "") + "...")
+                        st_set("wifi_join", 1.0)
+                    }
+                } else {
+                    bind nw = len(wifi_rows())
+                    if key_pressed("down") { st_set("wifi_sel", min(st_get("wifi_sel", 0.0) + 1.0, max(nw - 1.0, 0.0))) }
+                    if key_pressed("up") { st_set("wifi_sel", max(st_get("wifi_sel", 0.0) - 1.0, 0.0)) }
+                    if key_pressed("enter") { wifi_activate() }
+                    if key_pressed("r") {
+                        st_set("wifi_msg", "scanning...")
+                        st_set("wifi_scan", 1.0)
+                    }
+                    if key_pressed("f") {
+                        wifi_forget()
+                        st_set("wifi_msg", "forgot the saved network")
                     }
                 }
-            }
-            files_keep_visible()
-        } else {
-            bind ds = st_get("dock_sel", 0.0 - 1.0)
-            if key_pressed("right") || key_pressed("left") || key_pressed("tab") { st_set("dock_key_t", os_uptime()) }
-            if key_pressed("right") || key_pressed("tab") { st_set("dock_sel", sel(ds + 1.0 >= len(APP_GLYPH), 0.0, ds + 1.0)) }
-            if key_pressed("left") { st_set("dock_sel", sel(ds - 1.0 < 0.0, len(APP_GLYPH) - 1.0, ds - 1.0)) }
-            if key_pressed("enter") && st_get("dock_sel", 0.0 - 1.0) >= 0.0 { run_app(st_get("dock_sel", 0.0), w, h) }
-            if key_pressed("w") { tray_wifi_toggle() }
-        }
-
-        # mouse
-        if st_get("dragging", 0.0) > 0.5 {
-            if down {
-                bind dwin = st_get("drag_win", "about")
-                st_set(dwin + "_x", mx - st_get("drag_dx", 0.0))
-                st_set(dwin + "_y", max(TOP_H + 1.0, my - st_get("drag_dy", 0.0)))
-            } else {
-                st_set("dragging", 0.0)
-            }
-        } else if click {
-            bind ax = st_get("about_x", 0.0)
-            bind ay = st_get("about_y", 0.0)
-            bind vx = st_get("view_x", 0.0)
-            bind vy = st_get("view_y", 0.0)
-            bind fx = st_get("files_x", 0.0)
-            bind fy = st_get("files_y", 0.0)
-            bind viewing = st_get("viewer", "") != ""
-            bind files_open = st_get("files", 0.0) > 0.5
-            bind pk_open_now = st_get("pkgs_win", 0.0) > 0.5
-            bind px = st_get("pk_x", 0.0)
-            bind py = st_get("pk_y", 0.0)
-            bind wifi_now = st_get("wifi_win", 0.0) > 0.5
-            bind wx = st_get("wifi_x", 0.0)
-            bind wy = st_get("wifi_y", 0.0)
-            bind twx = tray_wifi_x(w)
-            bind tr = tray_rect(w)
-            bind tray_open = st_get("tray_wifi", 0.0) > 0.5
-            bind hw = win_at(mx, my)
-            bind sr = tray_sound_rect(w)
-            bind sound_open = st_get("tray_sound", 0.0) > 0.5
-            if tray_open && inside(mx, my, list_get(tr, 0.0), list_get(tr, 1.0), TRAY_W, list_get(tr, 3.0)) {
-                tray_wifi_click(mx, my, w, h)
-            } else if sound_open && inside(mx, my, list_get(sr, 0.0), list_get(sr, 1.0), list_get(sr, 2.0), list_get(sr, 3.0)) {
-                tray_sound_click(mx, my, w, h)
-            } else if inside(mx, my, twx - 6.0, 0.0, 32.0, TOP_H) {
-                st_set("tray_sound", 0.0)
-                tray_wifi_toggle()
-            } else if inside(mx, my, tray_sound_x(w) - 6.0, 0.0, 32.0, TOP_H) {
-                st_set("tray_wifi", 0.0)
-                st_set("tray_sound", sel(sound_open, 0.0, 1.0))
-            } else if tray_open {
-                st_set("tray_wifi", 0.0)
-            } else if sound_open {
-                st_set("tray_sound", 0.0)
-            } else if menu_open && inside(mx, my, 6.0, 31.0, MENU_W, menu_h()) {
-                if menu_row_at(mx, my) >= 0.0 { run_app(menu_row_at(mx, my), w, h) }
-            } else if hw == "viewer" && inside(mx, my, vx + VIEW_W - 2.0 * TB, vy, 2.0 * TB, TB) {
-                st_set("viewer", "")
-                win_raise("files")
-            } else if hw == "viewer" && inside(mx, my, vx, vy, VIEW_W - 3.0 * TB, TB) {
-                st_set("dragging", 1.0)
-                st_set("drag_win", "view")
-                st_set("drag_dx", mx - vx)
-                st_set("drag_dy", my - vy)
-                win_raise("viewer")
-            } else if hw == "viewer" && inside(mx, my, vx, vy, VIEW_W, VIEW_H) {
-                win_raise("viewer")
-            } else if hw == "wifi" && inside(mx, my, wx + WIFI_W - 2.0 * TB, wy, 2.0 * TB, TB) {
-                st_set("wifi_win", 0.0)
-            } else if hw == "wifi" && inside(mx, my, wx, wy, WIFI_W - 3.0 * TB, TB) {
-                st_set("dragging", 1.0)
-                st_set("drag_win", "wifi")
-                st_set("drag_dx", mx - wx)
-                st_set("drag_dy", my - wy)
-                win_raise("wifi")
-            } else if hw == "wifi" && inside(mx, my, wx, wy, WIFI_W, WIFI_H) {
-                win_raise("wifi")
-                st_set("menu", 0.0)
-                wifi_click(mx, my)
-            } else if hw == "packages" && inside(mx, my, px + PK_W - 2.0 * TB, py, 2.0 * TB, TB) {
-                st_set("pkgs_win", 0.0)
-            } else if hw == "packages" && inside(mx, my, px, py, PK_W - 3.0 * TB, TB) {
-                st_set("dragging", 1.0)
-                st_set("drag_win", "pk")
-                st_set("drag_dx", mx - px)
-                st_set("drag_dy", my - py)
-                win_raise("packages")
-            } else if hw == "packages" && inside(mx, my, px, py, PK_W, PK_H) {
-                win_raise("packages")
-                st_set("menu", 0.0)
-                bind tcy = py + TB + 12.0
-                if inside(mx, my, px + 16.0, tcy - 4.0, 128.0, 16.0) {
-                    st_set("pk_tab", 0.0)
+            } else if st_get("set_win", 0.0) > 0.5 && st_get("focus", "") == "settings" {
+                settings_keys()
+            } else if st_get("pkgs_win", 0.0) > 0.5 && st_get("focus", "") == "packages" {
+                bind nv = len(pk_visible())
+                if key_pressed("down") { st_set("pk_sel", min(st_get("pk_sel", 0.0) + 1.0, max(nv - 1.0, 0.0))) }
+                if key_pressed("up") { st_set("pk_sel", max(st_get("pk_sel", 0.0) - 1.0, 0.0)) }
+                if key_pressed("enter") { pk_activate() }
+                if key_pressed("tab") {
+                    st_set("pk_tab", sel(st_get("pk_tab", 0.0) > 0.5, 0.0, 1.0))
                     st_set("pk_sel", 0.0)
                     st_set("pk_scroll", 0.0)
-                } else if inside(mx, my, px + 152.0, tcy - 4.0, 136.0, 16.0) {
-                    st_set("pk_tab", 1.0)
-                    st_set("pk_sel", 0.0)
-                    st_set("pk_scroll", 0.0)
-                } else if inside(mx, my, px + PK_W - 96.0, tcy - 4.0, 88.0, 16.0) {
+                }
+                if key_pressed("s") {
                     st_set("pk_msg", "resyncing the catalog...")
                     st_set("pk_load", 1.0)
                 }
-                bind pi = pk_row_at(mx, my)
-                if pi >= 0.0 {
-                    bind now = os_uptime()
-                    if pi == st_get("pk_sel", 0.0) && now - st_get("pkclick_t", 0.0) < 0.45 {
-                        pk_activate()
-                        st_set("pkclick_t", 0.0)
-                    } else {
-                        st_set("pk_sel", pi)
-                        st_set("pkclick_t", now)
+                pk_keep_visible()
+            } else if st_get("files", 0.0) > 0.5 && st_get("focus", "") == "files" {
+                bind nf = len(files_items()) / 2.0
+                if key_pressed("down") { st_set("fsel", min(st_get("fsel", 0.0) + 1.0, max(nf - 1.0, 0.0))) }
+                if key_pressed("up") { st_set("fsel", max(st_get("fsel", 0.0) - 1.0, 0.0)) }
+                if key_pressed("enter") { files_activate(st_get("fsel", 0.0)) }
+                if key_pressed("backspace") { files_up() }
+                if key_pressed("h") {
+                    st_set("fdir", home_dir())
+                    st_set("fsel", 0.0)
+                }
+                if key_pressed("c") || key_pressed("x") {
+                    bind p = files_sel_path()
+                    if p != "" {
+                        bind cut = key_pressed("x")
+                        st_set("clip", p)
+                        st_set("clip_cut", sel(cut, 1.0, 0.0))
+                        st_set("fmsg", sel(cut, "cut: ", "copied: ") + p + "   (v pastes into the open folder)")
                     }
                 }
-            } else if hw == "files" && inside(mx, my, fx + FILES_W - 2.0 * TB, fy, 2.0 * TB, TB) {
-                st_set("files", 0.0)
-            } else if hw == "files" && inside(mx, my, fx, fy, FILES_W - 3.0 * TB, TB) {
-                st_set("dragging", 1.0)
-                st_set("drag_win", "files")
-                st_set("drag_dx", mx - fx)
-                st_set("drag_dy", my - fy)
-                win_raise("files")
-            } else if hw == "files" && inside(mx, my, fx, fy, FILES_W, FILES_H) {
-                win_raise("files")
-                st_set("menu", 0.0)
-                if inside(mx, my, fx + FILES_W - 80.0, fy + TB + 6.0, 70.0, 18.0) { files_up() }
-                bind fi = files_row_at(mx, my)
-                if fi >= 0.0 {
-                    bind now = os_uptime()
-                    if fi == st_get("fsel", 0.0) && now - st_get("fclick_t", 0.0) < 0.45 {
-                        files_activate(fi)
-                        st_set("fclick_t", 0.0)
+                if key_pressed("v") && st_get("clip", "") != "" {
+                    bind src = st_get("clip", "")
+                    bind dst = files_join(st_get("fdir", home_dir()), fs_basename(src))
+                    bind cut = st_get("clip_cut", 0.0) > 0.5
+                    bind ok = 0.0
+                    if cut { bind ok = fs_move(src, dst) } else { bind ok = fs_copy(src, dst) }
+                    if ok > 0.5 {
+                        st_set("fmsg", sel(cut, "moved to ", "copied to ") + dst)
+                        if cut { st_set("clip", "") }
                     } else {
-                        st_set("fsel", fi)
-                        st_set("fclick_t", now)
+                        st_set("fmsg", "could not write " + dst + " (is this folder on a USB drive or the SD card?)")
                     }
                 }
-            } else if inside(mx, my, 0.0, 0.0, 84.0, TOP_H) {
-                st_set("menu", sel(menu_open, 0.0, 1.0))
-            } else if menu_open && menu_row_at(mx, my) >= 0.0 {
-                run_app(menu_row_at(mx, my), w, h)
-            } else if menu_open && inside(mx, my, 6.0, 31.0, MENU_W, menu_h()) {
-                st_set("menu", 1.0)
-            } else if dock_at(mx, my, w, h) >= 0.0 {
-                run_app(dock_at(mx, my, w, h), w, h)
-            } else if hw == "settings" && inside(mx, my, st_get("set_x", 0.0) + SET_W - 2.0 * TB, st_get("set_y", 0.0), 2.0 * TB, TB) {
-                st_set("set_win", 0.0)
-            } else if hw == "settings" && inside(mx, my, st_get("set_x", 0.0), st_get("set_y", 0.0), SET_W - 3.0 * TB, TB) {
-                st_set("dragging", 1.0)
-                st_set("drag_win", "set")
-                st_set("drag_dx", mx - st_get("set_x", 0.0))
-                st_set("drag_dy", my - st_get("set_y", 0.0))
-                win_raise("settings")
-            } else if hw == "settings" {
-                win_raise("settings")
-                st_set("menu", 0.0)
-                settings_click(mx, my, w, h)
-            } else if hw == "about" && inside(mx, my, ax + ABOUT_W - 2.0 * TB, ay, 2.0 * TB, TB) {
-                st_set("about", 0.0)
-            } else if hw == "about" && inside(mx, my, ax, ay, ABOUT_W - 3.0 * TB, TB) {
-                st_set("dragging", 1.0)
-                st_set("drag_win", "about")
-                st_set("drag_dx", mx - ax)
-                st_set("drag_dy", my - ay)
-                win_raise("about")
-                st_set("menu", 0.0)
-            } else if hw == "about" && inside(mx, my, ax, ay, ABOUT_W, ABOUT_H) {
-                win_raise("about")
-                st_set("menu", 0.0)
+                if key_pressed("delete") {
+                    bind p = files_sel_path()
+                    if p != "" {
+                        if fs_delete(p) > 0.5 {
+                            st_set("fmsg", "deleted " + p)
+                            st_set("fsel", max(st_get("fsel", 0.0) - 1.0, 0.0))
+                        } else {
+                            st_set("fmsg", "could not delete " + p + " (folders must be empty; only removable media can be deleted from)")
+                        }
+                    }
+                }
+                files_keep_visible()
             } else {
-                st_set("menu", 0.0)
+                bind ds = st_get("dock_sel", 0.0 - 1.0)
+                if key_pressed("right") || key_pressed("left") || key_pressed("tab") { st_set("dock_key_t", os_uptime()) }
+                if key_pressed("right") || key_pressed("tab") { st_set("dock_sel", sel(ds + 1.0 >= len(APP_GLYPH), 0.0, ds + 1.0)) }
+                if key_pressed("left") { st_set("dock_sel", sel(ds - 1.0 < 0.0, len(APP_GLYPH) - 1.0, ds - 1.0)) }
+                if key_pressed("enter") && st_get("dock_sel", 0.0 - 1.0) >= 0.0 { run_app(st_get("dock_sel", 0.0), w, h) }
+                if key_pressed("w") { tray_wifi_toggle() }
             }
-        }
 
-        keep_windows_clear(h)
+            # mouse
+            if st_get("dragging", 0.0) > 0.5 {
+                if down {
+                    bind dwin = st_get("drag_win", "about")
+                    st_set(dwin + "_x", mx - st_get("drag_dx", 0.0))
+                    st_set(dwin + "_y", max(TOP_H + 1.0, my - st_get("drag_dy", 0.0)))
+                } else {
+                    st_set("dragging", 0.0)
+                }
+            } else if click {
+                bind ax = st_get("about_x", 0.0)
+                bind ay = st_get("about_y", 0.0)
+                bind vx = st_get("view_x", 0.0)
+                bind vy = st_get("view_y", 0.0)
+                bind fx = st_get("files_x", 0.0)
+                bind fy = st_get("files_y", 0.0)
+                bind viewing = st_get("viewer", "") != ""
+                bind files_open = st_get("files", 0.0) > 0.5
+                bind pk_open_now = st_get("pkgs_win", 0.0) > 0.5
+                bind px = st_get("pk_x", 0.0)
+                bind py = st_get("pk_y", 0.0)
+                bind wifi_now = st_get("wifi_win", 0.0) > 0.5
+                bind wx = st_get("wifi_x", 0.0)
+                bind wy = st_get("wifi_y", 0.0)
+                bind twx = tray_wifi_x(w)
+                bind tr = tray_rect(w)
+                bind tray_open = st_get("tray_wifi", 0.0) > 0.5
+                bind hw = win_at(mx, my)
+                bind sr = tray_sound_rect(w)
+                bind sound_open = st_get("tray_sound", 0.0) > 0.5
+                if tray_open && inside(mx, my, list_get(tr, 0.0), list_get(tr, 1.0), TRAY_W, list_get(tr, 3.0)) {
+                    tray_wifi_click(mx, my, w, h)
+                } else if sound_open && inside(mx, my, list_get(sr, 0.0), list_get(sr, 1.0), list_get(sr, 2.0), list_get(sr, 3.0)) {
+                    tray_sound_click(mx, my, w, h)
+                } else if inside(mx, my, twx - 6.0, 0.0, 32.0, TOP_H) {
+                    st_set("tray_sound", 0.0)
+                    tray_wifi_toggle()
+                } else if inside(mx, my, tray_sound_x(w) - 6.0, 0.0, 32.0, TOP_H) {
+                    st_set("tray_wifi", 0.0)
+                    st_set("tray_sound", sel(sound_open, 0.0, 1.0))
+                } else if tray_open {
+                    st_set("tray_wifi", 0.0)
+                } else if sound_open {
+                    st_set("tray_sound", 0.0)
+                } else if menu_open && inside(mx, my, 6.0, 31.0, MENU_W, menu_h()) {
+                    if menu_row_at(mx, my) >= 0.0 { run_app(menu_row_at(mx, my), w, h) }
+                } else if hw == "viewer" && inside(mx, my, vx + VIEW_W - 2.0 * TB, vy, 2.0 * TB, TB) {
+                    st_set("viewer", "")
+                    win_raise("files")
+                } else if hw == "viewer" && inside(mx, my, vx, vy, VIEW_W - 3.0 * TB, TB) {
+                    st_set("dragging", 1.0)
+                    st_set("drag_win", "view")
+                    st_set("drag_dx", mx - vx)
+                    st_set("drag_dy", my - vy)
+                    win_raise("viewer")
+                } else if hw == "viewer" && inside(mx, my, vx, vy, VIEW_W, VIEW_H) {
+                    win_raise("viewer")
+                } else if hw == "wifi" && inside(mx, my, wx + WIFI_W - 2.0 * TB, wy, 2.0 * TB, TB) {
+                    st_set("wifi_win", 0.0)
+                } else if hw == "wifi" && inside(mx, my, wx, wy, WIFI_W - 3.0 * TB, TB) {
+                    st_set("dragging", 1.0)
+                    st_set("drag_win", "wifi")
+                    st_set("drag_dx", mx - wx)
+                    st_set("drag_dy", my - wy)
+                    win_raise("wifi")
+                } else if hw == "wifi" && inside(mx, my, wx, wy, WIFI_W, WIFI_H) {
+                    win_raise("wifi")
+                    st_set("menu", 0.0)
+                    wifi_click(mx, my)
+                } else if hw == "packages" && inside(mx, my, px + PK_W - 2.0 * TB, py, 2.0 * TB, TB) {
+                    st_set("pkgs_win", 0.0)
+                } else if hw == "packages" && inside(mx, my, px, py, PK_W - 3.0 * TB, TB) {
+                    st_set("dragging", 1.0)
+                    st_set("drag_win", "pk")
+                    st_set("drag_dx", mx - px)
+                    st_set("drag_dy", my - py)
+                    win_raise("packages")
+                } else if hw == "packages" && inside(mx, my, px, py, PK_W, PK_H) {
+                    win_raise("packages")
+                    st_set("menu", 0.0)
+                    bind tcy = py + TB + 12.0
+                    if inside(mx, my, px + 16.0, tcy - 4.0, 128.0, 16.0) {
+                        st_set("pk_tab", 0.0)
+                        st_set("pk_sel", 0.0)
+                        st_set("pk_scroll", 0.0)
+                    } else if inside(mx, my, px + 152.0, tcy - 4.0, 136.0, 16.0) {
+                        st_set("pk_tab", 1.0)
+                        st_set("pk_sel", 0.0)
+                        st_set("pk_scroll", 0.0)
+                    } else if inside(mx, my, px + PK_W - 96.0, tcy - 4.0, 88.0, 16.0) {
+                        st_set("pk_msg", "resyncing the catalog...")
+                        st_set("pk_load", 1.0)
+                    }
+                    bind pi = pk_row_at(mx, my)
+                    if pi >= 0.0 {
+                        bind now = os_uptime()
+                        if pi == st_get("pk_sel", 0.0) && now - st_get("pkclick_t", 0.0) < 0.45 {
+                            pk_activate()
+                            st_set("pkclick_t", 0.0)
+                        } else {
+                            st_set("pk_sel", pi)
+                            st_set("pkclick_t", now)
+                        }
+                    }
+                } else if hw == "files" && inside(mx, my, fx + FILES_W - 2.0 * TB, fy, 2.0 * TB, TB) {
+                    st_set("files", 0.0)
+                } else if hw == "files" && inside(mx, my, fx, fy, FILES_W - 3.0 * TB, TB) {
+                    st_set("dragging", 1.0)
+                    st_set("drag_win", "files")
+                    st_set("drag_dx", mx - fx)
+                    st_set("drag_dy", my - fy)
+                    win_raise("files")
+                } else if hw == "files" && inside(mx, my, fx, fy, FILES_W, FILES_H) {
+                    win_raise("files")
+                    st_set("menu", 0.0)
+                    if inside(mx, my, fx + FILES_W - 80.0, fy + TB + 6.0, 70.0, 18.0) { files_up() }
+                    bind fi = files_row_at(mx, my)
+                    if fi >= 0.0 {
+                        bind now = os_uptime()
+                        if fi == st_get("fsel", 0.0) && now - st_get("fclick_t", 0.0) < 0.45 {
+                            files_activate(fi)
+                            st_set("fclick_t", 0.0)
+                        } else {
+                            st_set("fsel", fi)
+                            st_set("fclick_t", now)
+                        }
+                    }
+                } else if inside(mx, my, 0.0, 0.0, 84.0, TOP_H) {
+                    st_set("menu", sel(menu_open, 0.0, 1.0))
+                } else if menu_open && menu_row_at(mx, my) >= 0.0 {
+                    run_app(menu_row_at(mx, my), w, h)
+                } else if menu_open && inside(mx, my, 6.0, 31.0, MENU_W, menu_h()) {
+                    st_set("menu", 1.0)
+                } else if dock_at(mx, my, w, h) >= 0.0 {
+                    run_app(dock_at(mx, my, w, h), w, h)
+                } else if hw == "settings" && inside(mx, my, st_get("set_x", 0.0) + SET_W - 2.0 * TB, st_get("set_y", 0.0), 2.0 * TB, TB) {
+                    st_set("set_win", 0.0)
+                } else if hw == "settings" && inside(mx, my, st_get("set_x", 0.0), st_get("set_y", 0.0), SET_W - 3.0 * TB, TB) {
+                    st_set("dragging", 1.0)
+                    st_set("drag_win", "set")
+                    st_set("drag_dx", mx - st_get("set_x", 0.0))
+                    st_set("drag_dy", my - st_get("set_y", 0.0))
+                    win_raise("settings")
+                } else if hw == "settings" {
+                    win_raise("settings")
+                    st_set("menu", 0.0)
+                    settings_click(mx, my, w, h)
+                } else if hw == "about" && inside(mx, my, ax + ABOUT_W - 2.0 * TB, ay, 2.0 * TB, TB) {
+                    st_set("about", 0.0)
+                } else if hw == "about" && inside(mx, my, ax, ay, ABOUT_W - 3.0 * TB, TB) {
+                    st_set("dragging", 1.0)
+                    st_set("drag_win", "about")
+                    st_set("drag_dx", mx - ax)
+                    st_set("drag_dy", my - ay)
+                    win_raise("about")
+                    st_set("menu", 0.0)
+                } else if hw == "about" && inside(mx, my, ax, ay, ABOUT_W, ABOUT_H) {
+                    win_raise("about")
+                    st_set("menu", 0.0)
+                } else {
+                    st_set("menu", 0.0)
+                }
+            }
 
-        # draw, back to front (same order as the x86 desktop loop)
-        wallpaper(w, h)
-        top_bar(w, mx, my)
-        bind z = zorder()
-        st_set("zorder", z)
-        if len(z) > 0.5 && st_get("focus", "") != list_get(z, len(z) - 1.0) { st_set("focus", list_get(z, len(z) - 1.0)) }
-        bind k = 0.0
-        while k < len(z) {
-            win_draw(list_get(z, k), mx, my)
-            bind k = k + 1.0
-        }
-        dock(w, h, mx, my)
-        if st_get("menu", 0.0) > 0.5 { apps_menu(mx, my) }
-        if st_get("tray_wifi", 0.0) > 0.5 { tray_wifi_popup(w, mx, my) }
-        if st_get("tray_sound", 0.0) > 0.5 { tray_sound_popup(w, mx, my) }
-        if st_get("switch", 0.0) > 0.5 { switcher(w, h) }
-        status_line(h)
-        present()
-        # Network work after the frame is on screen (it blocks for seconds).
-        if st_get("pk_load", 0.0) > 0.5 {
-            st_set("pk_load", 0.0)
-            pk_refresh()
-        }
-        if st_get("pk_install", "") != "" {
-            bind nm = st_get("pk_install", "")
-            st_set("pk_install", "")
-            st_set("pk_msg", lingfu_install(nm))
-            pk_refresh()
-        }
-        if st_get("wifi_scan", 0.0) > 0.5 {
-            st_set("wifi_scan", 0.0)
-            st_set("wifi_list", wifi_scan())
-            st_set("wifi_sel", 0.0)
-            bind got = wifi_rows()
-            st_set("wifi_msg", sel(len(got) > 0.5, num_str(len(got)) + " networks, strongest first", ""))
-        }
-        if st_get("wifi_join", 0.0) > 0.5 {
-            st_set("wifi_join", 0.0)
-            bind r = wifi_connect(st_get("wifi_ssid", ""), st_get("wifi_pass", ""))
-            st_set("wifi_pass", "")
-            st_set("wifi_msg", str_replace(r, "!", ""))
+            keep_windows_clear(h)
+
+            # draw, back to front (same order as the x86 desktop loop)
+            wallpaper(w, h)
+            top_bar(w, mx, my)
+            bind z = zorder()
+            st_set("zorder", z)
+            if len(z) > 0.5 && st_get("focus", "") != list_get(z, len(z) - 1.0) { st_set("focus", list_get(z, len(z) - 1.0)) }
+            bind k = 0.0
+            while k < len(z) {
+                win_draw(list_get(z, k), mx, my)
+                bind k = k + 1.0
+            }
+            dock(w, h, mx, my)
+            if st_get("menu", 0.0) > 0.5 { apps_menu(mx, my) }
+            if st_get("tray_wifi", 0.0) > 0.5 { tray_wifi_popup(w, mx, my) }
+            if st_get("tray_sound", 0.0) > 0.5 { tray_sound_popup(w, mx, my) }
+            if st_get("switch", 0.0) > 0.5 { switcher(w, h) }
+            status_line(h)
+            present()
+            # Network work after the frame is on screen (it blocks for seconds).
+            if st_get("pk_load", 0.0) > 0.5 {
+                st_set("pk_load", 0.0)
+                pk_refresh()
+            }
+            if st_get("pk_install", "") != "" {
+                bind nm = st_get("pk_install", "")
+                st_set("pk_install", "")
+                st_set("pk_msg", lingfu_install(nm))
+                pk_refresh()
+            }
+            if st_get("wifi_scan", 0.0) > 0.5 {
+                st_set("wifi_scan", 0.0)
+                st_set("wifi_list", wifi_scan())
+                st_set("wifi_sel", 0.0)
+                bind got = wifi_rows()
+                st_set("wifi_msg", sel(len(got) > 0.5, num_str(len(got)) + " networks, strongest first", ""))
+            }
+            if st_get("wifi_join", 0.0) > 0.5 {
+                st_set("wifi_join", 0.0)
+                bind r = wifi_connect(st_get("wifi_ssid", ""), st_get("wifi_pass", ""))
+                st_set("wifi_pass", "")
+                st_set("wifi_msg", str_replace(r, "!", ""))
+            }
         }
     }
 }
