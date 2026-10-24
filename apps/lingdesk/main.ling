@@ -520,6 +520,7 @@ fn settings_load() {
             if k == "accent" { st_set("accent", min(6.0, max(0.0, to_number(v)))) }
             if k == "dock_auto" { st_set("dock_auto", to_number(v)) }
             if k == "pause_audio" { st_set("pause_audio", to_number(v)) }
+            if k == "perf" { st_set("perf", to_number(v)) }
             if k == "net_mode" { st_set("net_mode", v) }
             if k == "net_ip" { st_set("net_ip", v) }
             if k == "net_mask" { st_set("net_mask", v) }
@@ -535,6 +536,7 @@ fn settings_load() {
 # Put the loaded (or just changed) settings into effect in the kernel.
 fn settings_apply() {
     os_option("pause_audio", st_get("pause_audio", 1.0) > 0.5)
+    os_option("perf", st_get("perf", 0.0) > 0.5)
     if st_get("net_mode", "dhcp") == "static" {
         st_set("net_msg", os_net_set("static", st_get("net_ip", ""), st_get("net_mask", ""), st_get("net_gw", ""), st_get("net_dns", "")))
     }
@@ -555,7 +557,7 @@ fn net_prefill() {
 fn settings_save() {
     fs_mkdir(fs_join(fs_home(), "Programs"))
     fs_mkdir(fs_join(fs_join(fs_home(), "Programs"), "LingOS"))
-    write_file(settings_path(), "accent=" + num_str(st_get("accent", 4.0)) + "\ndock_auto=" + num_str(st_get("dock_auto", 1.0)) + "\npause_audio=" + num_str(st_get("pause_audio", 1.0)) + "\nnet_mode=" + st_get("net_mode", "dhcp") + "\nnet_ip=" + st_get("net_ip", "") + "\nnet_mask=" + st_get("net_mask", "") + "\nnet_gw=" + st_get("net_gw", "") + "\nnet_dns=" + st_get("net_dns", "") + "\n")
+    write_file(settings_path(), "accent=" + num_str(st_get("accent", 4.0)) + "\ndock_auto=" + num_str(st_get("dock_auto", 1.0)) + "\npause_audio=" + num_str(st_get("pause_audio", 1.0)) + "\nperf=" + num_str(st_get("perf", 0.0)) + "\nnet_mode=" + st_get("net_mode", "dhcp") + "\nnet_ip=" + st_get("net_ip", "") + "\nnet_mask=" + st_get("net_mask", "") + "\nnet_gw=" + st_get("net_gw", "") + "\nnet_dns=" + st_get("net_dns", "") + "\n")
     return 0.0
 }
 
@@ -717,6 +719,7 @@ fn settings_tab_system(cx, cy, mx, my) {
     tray_button(cx + sel(ready, 0.0, 240.0), by + 34.0, 110.0, "About", mx, my)
     t8(cx, by + 76.0, C_DIM, "Set up storage uses the free space after the boot partition (the console asks).")
     t8(cx, by + 100.0, C_DIM, "Alt+Tab switches windows    Super: Applications    w: Wi-Fi")
+    toggle(cx, by + 128.0, st_get("perf", 0.0) > 0.5, "Show frame timing over apps (ms per frame, calls, collections)", mx, my)
     return 0.0
 }
 
@@ -792,6 +795,11 @@ fn settings_click(mx, my, w, h) {
         if inside(mx, my, cx + 160.0, by, 150.0, 24.0) { os_setup() }
         if inside(mx, my, cx + 320.0, by, 110.0, 24.0) { os_console("") }
         if !ready && inside(mx, my, cx, by + 34.0, 230.0, 24.0) { os_console("sd format") }
+        if inside(mx, my, cx, by + 128.0, 560.0, 22.0) {
+            st_set("perf", sel(st_get("perf", 0.0) > 0.5, 0.0, 1.0))
+            settings_apply()
+            settings_save()
+        }
         if inside(mx, my, cx + sel(ready, 0.0, 240.0), by + 34.0, 110.0, 24.0) {
             st_set("about", 1.0)
             st_set("about_x", floor((w - ABOUT_W) / 2.0) - 40.0)
