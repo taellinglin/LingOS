@@ -9,17 +9,29 @@
 # launches are full-screen compiled .ling programs linked into the same image
 # (`bundle_app` in the kernel's Ling.toml); Ctrl+Q in an app comes back here.
 # Keyboard: Super or Esc opens Applications, arrows + Enter pick; with the
-# menu closed, Left/Right walk the dock and Enter launches.
+# menu closed, Left/Right walk the dock and Enter launches. Alt+Tab cycles
+# the open windows (most recent first, Shift+Tab back), like Windows. The look
+# is LingStationX / LingDev's (their theme palette) with a ROYGBIV accent from
+# Settings; the dock hides until the pointer reaches the bottom edge.
 
-# Dusk theme (drivers::theme), slot order as in the x86 kernel.
-bind C_PANEL = 2366259.0       # 0x241B33
-bind C_BORDER = 3813197.0      # 0x3A2F4D
-bind C_TEXT = 16777215.0       # 0xFFFFFF
-bind C_DIM = 10194864.0        # 0x9B8FB0
-bind C_TITLE = 3549773.0       # 0x362A4D
-bind C_TITLE_IDLE = 2366259.0  # 0x241B33
-bind C_DOCK = 1183258.0        # 0x120E1A
-bind C_ACCENT = 4886496.0      # 0x4A8FE0
+# Palette: the LingStationX / LingDev look (their theme.ling), over the Ling
+# Country wallpaper. The accent is one of ROYGBIV, picked in Settings.
+bind C_PANEL = 1776411.0       # 27,27,27   panels, top bar
+bind C_BORDER = 2763826.0      # 42,44,50   lines
+bind C_TEXT = 13488344.0       # 205,208,216
+bind C_STRONG = 16119285.0     # 245,245,245
+bind C_DIM = 9212056.0         # 140,144,152
+bind C_TITLE = 2503756.0       # 38,52,76   focused titlebar, hover rows
+bind C_TITLE_IDLE = 1447706.0  # 22,23,26
+bind C_DOCK = 657930.0         # 10,10,10   deep background
+bind ACCENTS = [15551031.0, 16225310.0, 16242758.0, 4573296.0, 3910379.0, 4875480.0, 10114006.0]
+bind ACCENT_NAMES = ["Red", "Orange", "Yellow", "Green", "Blue", "Indigo", "Violet"]
+bind SET_W = 560.0
+bind SET_H = 400.0
+
+fn accent() {
+    return list_get(ACCENTS, st_get("accent", 4.0))
+}
 
 bind TOP_H = 30.0
 bind TB = 28.0                 # TITLEBAR_H
@@ -36,9 +48,12 @@ bind PK_W = 660.0
 bind PK_H = 440.0
 bind PK_ROW = 30.0
 bind PK_F = 7.0
-bind WIFI_W = 560.0
-bind WIFI_H = 400.0
-bind WIFI_ROW = 26.0
+bind WIFI_W = 600.0
+bind WIFI_H = 470.0
+bind WIFI_ROW = 36.0
+bind C_GOOD = 6279050.0        # 0x5FD38A
+bind C_WARN = 14725194.0       # 0xE0B04A
+bind C_BAD = 14707274.0        # 0xE06A4A
 
 bind FILES_W = 600.0
 bind FILES_H = 420.0
@@ -58,6 +73,277 @@ fn sel(cond, a, b) {
 
 fn inside(mx, my, x, y, w, h) {
     return mx >= x && mx < x + w && my >= y && my < y + h
+}
+
+# ── Windows: stacking order and focus ────────────────────────────────────────
+# "zorder" lists the open windows bottom to top; the top one has the focus.
+# A click or Alt+Tab raises a window (win_raise); closed ones fall out.
+bind WIN_NAMES = ["about", "files", "packages", "wifi", "viewer", "settings"]
+
+fn list_has(l, v) {
+    bind i = 0.0
+    while i < len(l) {
+        if list_get(l, i) == v { return true }
+        bind i = i + 1.0
+    }
+    return false
+}
+
+fn win_open(name) {
+    if name == "about" { return st_get("about", 0.0) > 0.5 }
+    if name == "files" { return st_get("files", 0.0) > 0.5 }
+    if name == "packages" { return st_get("pkgs_win", 0.0) > 0.5 }
+    if name == "wifi" { return st_get("wifi_win", 0.0) > 0.5 }
+    if name == "viewer" { return st_get("viewer", "") != "" }
+    if name == "settings" { return st_get("set_win", 0.0) > 0.5 }
+    return false
+}
+
+fn win_title(name) {
+    if name == "about" { return "About LingOS" }
+    if name == "files" { return "Files" }
+    if name == "packages" { return "Packages" }
+    if name == "wifi" { return "Wi-Fi networks" }
+    if name == "settings" { return "Settings" }
+    if name == "viewer" {
+        bind parts = str_split(st_get("viewer", ""), "/")
+        return list_get(parts, len(parts) - 1.0)
+    }
+    return name
+}
+
+fn win_glyph(name) {
+    if name == "about" { return "i" }
+    if name == "files" { return "F" }
+    if name == "packages" { return "P" }
+    if name == "wifi" { return "W" }
+    if name == "settings" { return "S" }
+    return "V"
+}
+
+fn win_rect(name) {
+    if name == "about" { return [st_get("about_x", 0.0), st_get("about_y", 0.0), ABOUT_W, ABOUT_H] }
+    if name == "files" { return [st_get("files_x", 0.0), st_get("files_y", 0.0), FILES_W, FILES_H] }
+    if name == "packages" { return [st_get("pk_x", 0.0), st_get("pk_y", 0.0), PK_W, PK_H] }
+    if name == "wifi" { return [st_get("wifi_x", 0.0), st_get("wifi_y", 0.0), WIFI_W, WIFI_H] }
+    if name == "settings" { return [st_get("set_x", 0.0), st_get("set_y", 0.0), SET_W, SET_H] }
+    return [st_get("view_x", 0.0), st_get("view_y", 0.0), VIEW_W, VIEW_H]
+}
+
+# The open windows bottom to top: the remembered order minus what closed,
+# plus whatever opened since (on top).
+fn zorder() {
+    bind z = st_get("zorder", [])
+    bind out = []
+    bind i = 0.0
+    while i < len(z) {
+        bind n = list_get(z, i)
+        if win_open(n) && !list_has(out, n) { bind out = list_push(out, n) }
+        bind i = i + 1.0
+    }
+    bind i = 0.0
+    while i < len(WIN_NAMES) {
+        bind n = list_get(WIN_NAMES, i)
+        if win_open(n) && !list_has(out, n) { bind out = list_push(out, n) }
+        bind i = i + 1.0
+    }
+    return out
+}
+
+# Bring a window to the top and give it the focus.
+fn win_raise(name) {
+    bind z = st_get("zorder", [])
+    bind out = []
+    bind i = 0.0
+    while i < len(z) {
+        bind n = list_get(z, i)
+        if n != name && !list_has(out, n) { bind out = list_push(out, n) }
+        bind i = i + 1.0
+    }
+    st_set("zorder", list_push(out, name))
+    st_set("focus", name)
+    return 0.0
+}
+
+# The top-most open window under the pointer, or "".
+fn win_at(mx, my) {
+    bind z = zorder()
+    bind i = len(z) - 1.0
+    while i >= 0.0 {
+        bind n = list_get(z, i)
+        bind r = win_rect(n)
+        if inside(mx, my, list_get(r, 0.0), list_get(r, 1.0), list_get(r, 2.0), list_get(r, 3.0)) { return n }
+        bind i = i - 1.0
+    }
+    return ""
+}
+
+# Alt+Tab: the open windows as tiles, most recent first, the pick highlighted.
+fn switcher(w, h) {
+    bind z = zorder()
+    bind n = len(z)
+    if n < 0.5 { return 0.0 }
+    bind tw = 150.0
+    bind th = 112.0
+    bind gap = 14.0
+    bind pw = n * tw + (n + 1.0) * gap
+    bind ph = th + 2.0 * gap + 28.0
+    bind x = floor((w - pw) / 2.0)
+    bind y = floor((h - ph) / 2.0) - 20.0
+    px_rrect(x + 6.0, y + 8.0, pw, ph, 12.0, 0.0, 0.35)
+    px_rrect(x, y, pw, ph, 12.0, C_BORDER)
+    px_rrect(x + 1.0, y + 1.0, pw - 2.0, ph - 2.0, 11.0, C_PANEL)
+    bind cur = st_get("switch_i", 0.0)
+    bind k = 0.0
+    while k < n {
+        bind name = list_get(z, n - 1.0 - k)
+        bind tx = x + gap + k * (tw + gap)
+        bind ty = y + gap
+        bind hot = k == cur
+        px_rrect(tx - 3.0, ty - 3.0, tw + 6.0, th + 6.0, 9.0, sel(hot, accent(), C_PANEL))
+        px_rrect(tx, ty, tw, th, 7.0, sel(hot, C_TITLE, C_DOCK))
+        # a little window: frame, titlebar, body, the app's letter
+        px_rrect(tx + 20.0, ty + 12.0, tw - 40.0, th - 42.0, 5.0, C_BORDER)
+        px_rrect(tx + 21.0, ty + 13.0, tw - 42.0, 10.0, 4.0, sel(hot, accent(), C_TITLE))
+        px_rect(tx + 21.0, ty + 23.0, tw - 42.0, th - 53.0, C_PANEL)
+        px_disc(tx + 27.0, ty + 18.0, 2.0, 14704730.0)
+        px_disc(tx + 34.0, ty + 18.0, 2.0, 14721098.0)
+        px_disc(tx + 41.0, ty + 18.0, 2.0, 5947498.0)
+        t8(tx + tw / 2.0 - 4.0, ty + 42.0, accent(), win_glyph(name))
+        bind title = win_title(name)
+        if len(title) > 17.0 { bind title = str_slice(title, 0.0, 15.0) + ".." }
+        t8(tx + floor((tw - len(title) * 8.0) / 2.0), ty + th - 16.0, sel(hot, C_TEXT, C_DIM), title)
+        bind k = k + 1.0
+    }
+    bind hint = "Tab: next   Shift+Tab: back   let go of Alt to switch"
+    t8(x + floor((pw - len(hint) * 8.0) / 2.0), y + ph - 20.0, C_DIM, hint)
+    return 0.0
+}
+
+# ── Settings ─────────────────────────────────────────────────────────────────
+fn settings_path() {
+    return fs_join(fs_join(fs_join(fs_home(), "Programs"), "LingOS"), "desktop.conf")
+}
+
+fn settings_load() {
+    bind s = read_file(settings_path())
+    bind lines = str_split(s, "\n")
+    bind i = 0.0
+    while i < len(lines) {
+        bind kv = str_split(list_get(lines, i), "=")
+        if len(kv) == 2.0 {
+            if list_get(kv, 0.0) == "accent" { st_set("accent", min(6.0, max(0.0, to_number(list_get(kv, 1.0))))) }
+            if list_get(kv, 0.0) == "dock_auto" { st_set("dock_auto", to_number(list_get(kv, 1.0))) }
+        }
+        bind i = i + 1.0
+    }
+    return 0.0
+}
+
+fn settings_save() {
+    fs_mkdir(fs_join(fs_home(), "Programs"))
+    fs_mkdir(fs_join(fs_join(fs_home(), "Programs"), "LingOS"))
+    write_file(settings_path(), "accent=" + num_str(st_get("accent", 4.0)) + "\ndock_auto=" + num_str(st_get("dock_auto", 1.0)) + "\n")
+    return 0.0
+}
+
+fn settings_open(w, h) {
+    st_set("set_win", 1.0)
+    st_set("set_x", floor((w - SET_W) / 2.0) + 20.0)
+    st_set("set_y", floor((h - SET_H) / 2.0 - 30.0))
+    win_raise("settings")
+    return 0.0
+}
+
+fn settings_swatch_x(x, i) {
+    return x + 40.0 + i * 70.0
+}
+
+fn settings_window(mx, my) {
+    bind x = st_get("set_x", 0.0)
+    bind y = st_get("set_y", 0.0)
+    window_frame(x, y, SET_W, SET_H, "Settings", st_get("focus", "") == "settings")
+    bind cx = x + 20.0
+    bind cy = y + TB + 16.0
+    t8(cx, cy, accent(), "APPEARANCE")
+    px_rect(cx + 96.0, cy + 4.0, SET_W - 136.0, 1.0, C_BORDER)
+    t8(cx, cy + 22.0, C_TEXT, "Accent colour")
+    bind cur = st_get("accent", 4.0)
+    bind i = 0.0
+    while i < 7.0 {
+        bind sx = settings_swatch_x(x, i)
+        bind sy = cy + 58.0
+        bind hot = inside(mx, my, sx - 16.0, sy - 16.0, 32.0, 32.0)
+        if i == cur { px_ring(sx, sy, 16.0, C_STRONG) }
+        if hot && i != cur { px_ring(sx, sy, 16.0, C_DIM) }
+        px_disc(sx, sy, 11.0, list_get(ACCENTS, i))
+        bind nm = list_get(ACCENT_NAMES, i)
+        t8(sx - len(nm) * 4.0, sy + 24.0, sel(i == cur, C_STRONG, C_DIM), nm)
+        bind i = i + 1.0
+    }
+    t8(cx, cy + 112.0, C_TEXT, "Wallpaper")
+    t8(cx + 120.0, cy + 112.0, C_DIM, "Ling Country (the desktop keeps it)")
+    t8(cx, cy + 128.0, C_TEXT, "Windows")
+    t8(cx + 120.0, cy + 128.0, C_DIM, "LingStationX / LingDev chrome")
+
+    bind dy = cy + 160.0
+    t8(cx, dy, accent(), "DOCK")
+    px_rect(cx + 48.0, dy + 4.0, SET_W - 88.0, 1.0, C_BORDER)
+    bind auto = st_get("dock_auto", 1.0) > 0.5
+    bind tog_x = cx
+    bind tog_y = dy + 20.0
+    px_rrect(tog_x, tog_y, 44.0, 22.0, 11.0, sel(auto, accent(), C_BORDER))
+    px_disc(tog_x + sel(auto, 33.0, 11.0), tog_y + 11.0, 8.0, C_STRONG)
+    t8(tog_x + 56.0, tog_y + 7.0, C_TEXT, sel(auto, "Hide the dock until the pointer touches the bottom edge", "Dock always shown"))
+    t8(cx, tog_y + 34.0, C_DIM, "Left / Right / Tab bring it out; windows move up out of its way")
+
+    bind sy2 = dy + 90.0
+    t8(cx, sy2, accent(), "SYSTEM")
+    px_rect(cx + 64.0, sy2 + 4.0, SET_W - 104.0, 1.0, C_BORDER)
+    tray_button(cx, sy2 + 20.0, 150.0, "Setup wizard", mx, my)
+    tray_button(cx + 160.0, sy2 + 20.0, 110.0, "Console", mx, my)
+    tray_button(cx + 280.0, sy2 + 20.0, 110.0, "About", mx, my)
+    t8(cx, sy2 + 56.0, C_DIM, "Alt+Tab switches windows    Super: Applications    w: Wi-Fi")
+    return 0.0
+}
+
+fn settings_click(mx, my, w, h) {
+    bind x = st_get("set_x", 0.0)
+    bind y = st_get("set_y", 0.0)
+    bind cy = y + TB + 16.0
+    bind i = 0.0
+    while i < 7.0 {
+        if inside(mx, my, settings_swatch_x(x, i) - 16.0, cy + 42.0, 32.0, 32.0) {
+            st_set("accent", i)
+            settings_save()
+        }
+        bind i = i + 1.0
+    }
+    bind dy = cy + 160.0
+    if inside(mx, my, x + 20.0, dy + 20.0, 44.0 + 400.0, 22.0) {
+        st_set("dock_auto", sel(st_get("dock_auto", 1.0) > 0.5, 0.0, 1.0))
+        settings_save()
+    }
+    bind sy2 = dy + 90.0
+    if inside(mx, my, x + 20.0, sy2 + 20.0, 150.0, 24.0) { os_setup() }
+    if inside(mx, my, x + 180.0, sy2 + 20.0, 110.0, 24.0) { os_console("") }
+    if inside(mx, my, x + 300.0, sy2 + 20.0, 110.0, 24.0) {
+        st_set("about", 1.0)
+        st_set("about_x", floor((w - ABOUT_W) / 2.0) - 40.0)
+        st_set("about_y", floor((h - ABOUT_H) / 2.0))
+        win_raise("about")
+    }
+    return 0.0
+}
+
+fn win_draw(name, mx, my) {
+    if name == "settings" { settings_window(mx, my) }
+    if name == "about" { about_window() }
+    if name == "files" { files_window(mx, my) }
+    if name == "packages" { pk_window(mx, my) }
+    if name == "wifi" { wifi_window(mx, my) }
+    if name == "viewer" { viewer_window() }
+    return 0.0
 }
 
 fn t8(x, y, c, s) {
@@ -99,26 +385,87 @@ fn wallpaper(w, h) {
     return 0.0
 }
 
+# The tray, right to left: clock, sound, Wi-Fi, input lights.
+fn clock_x(w) {
+    return w - len(clock_str()) * 8.0 - 14.0
+}
+
+fn tray_sound_x(w) {
+    return clock_x(w) - 38.0
+}
+
+fn tray_sound_rect(w) {
+    return [tray_sound_x(w) - 180.0, TOP_H + 6.0, 240.0, 112.0]
+}
+
+fn tray_sound_icon(w, mx, my) {
+    bind x = tray_sound_x(w)
+    bind hot = inside(mx, my, x - 6.0, 0.0, 32.0, TOP_H)
+    if st_get("tray_sound", 0.0) > 0.5 || hot { px_rrect(x - 6.0, 4.0, 32.0, 22.0, 5.0, C_TITLE) }
+    bind c = C_TEXT
+    px_rect(x, 12.0, 3.0, 7.0, c)
+    px_rect(x + 3.0, 11.0, 2.0, 9.0, c)
+    px_rect(x + 5.0, 10.0, 2.0, 11.0, c)
+    px_rect(x + 7.0, 9.0, 2.0, 13.0, c)
+    px_clip(x + 10.0, 6.0, 12.0, 19.0)
+    px_ring(x + 8.0, 15.5, 5.0, c)
+    px_ring(x + 8.0, 15.5, 9.0, c)
+    px_unclip()
+    return 0.0
+}
+
+fn tray_sound_popup(w, mx, my) {
+    bind r = tray_sound_rect(w)
+    bind x = list_get(r, 0.0)
+    bind y = list_get(r, 1.0)
+    bind pw = list_get(r, 2.0)
+    bind ph = list_get(r, 3.0)
+    px_rrect(x + 4.0, y + 5.0, pw, ph, 8.0, 0.0, 0.31)
+    px_rrect(x, y, pw, ph, 8.0, C_BORDER)
+    px_rrect(x + 1.0, y + 1.0, pw - 2.0, ph - 2.0, 7.0, C_PANEL)
+    t8(x + 14.0, y + 12.0, C_STRONG, "Sound")
+    t8(x + 14.0, y + 32.0, C_DIM, "Output: HDMI  48 kHz stereo")
+    t8(x + 14.0, y + 48.0, C_DIM, "apps mix their own levels")
+    tray_button(x + 14.0, y + 72.0, 100.0, "Test tone", mx, my)
+    tray_button(x + 124.0, y + 72.0, 100.0, "Settings", mx, my)
+    return 0.0
+}
+
+fn tray_sound_click(mx, my, w, h) {
+    bind r = tray_sound_rect(w)
+    bind x = list_get(r, 0.0)
+    bind y = list_get(r, 1.0)
+    if inside(mx, my, x + 14.0, y + 72.0, 100.0, 24.0) {
+        st_set("tray_sound", 0.0)
+        os_console("hdmiaudio")
+    } else if inside(mx, my, x + 124.0, y + 72.0, 100.0, 24.0) {
+        st_set("tray_sound", 0.0)
+        settings_open(w, h)
+    }
+    return 0.0
+}
+
 fn top_bar(w, mx, my) {
     px_rect(0.0, 0.0, w, TOP_H, C_PANEL)
     px_rect(0.0, TOP_H, w, 1.0, C_BORDER)
     if inside(mx, my, 0.0, 0.0, 84.0, TOP_H) || st_get("menu", 0.0) > 0.5 {
         px_rrect(4.0, 4.0, 76.0, 22.0, 5.0, C_TITLE)
     }
-    t8(12.0, 11.0, C_ACCENT, "= LingOS")
+    t8(12.0, 11.0, accent(), "= LingOS")
     t8(96.0, 11.0, C_DIM, "English (US)")
     bind clock = clock_str()
-    bind cx = w - len(clock) * 8.0 - 14.0
+    bind cx = clock_x(w)
     t8(cx, 11.0, C_TEXT, clock)
-    # tray: input devices
+    tray_sound_icon(w, mx, my)
+    tray_wifi_icon(w)
+    # input lights
     bind mouse_ok = st_get("mouse_info", "") != "none"
     bind kbd_ok = st_get("kbd_info", "") != "serial only"
-    bind tx = cx - 150.0
-    px_disc(tx, 15.0, 4.0, sel(mouse_ok, 5947498.0, 14704730.0))
-    t8(tx + 9.0, 11.0, C_DIM, "mouse")
-    px_disc(tx + 70.0, 15.0, 4.0, sel(kbd_ok, 5947498.0, 14704730.0))
-    t8(tx + 79.0, 11.0, C_DIM, "kbd")
-    tray_wifi_icon(w)
+    bind tx = tray_wifi_x(w) - 108.0
+    px_disc(tx, 15.0, 3.0, sel(mouse_ok, 5947498.0, 14704730.0))
+    t8(tx + 8.0, 11.0, C_DIM, "mouse")
+    px_disc(tx + 60.0, 15.0, 3.0, sel(kbd_ok, 5947498.0, 14704730.0))
+    t8(tx + 68.0, 11.0, C_DIM, "kbd")
 }
 
 # ── dock ─────────────────────────────────────────────────────────────────────
@@ -135,11 +482,43 @@ fn dock_x(i, w, h) {
     return floor((w - total) / 2.0) + i * (sz + gap)
 }
 
+# How much of the bottom the dock takes when it is out (tiles + glass + gap).
+fn dock_room(h) {
+    return dock_size(h) + 16.0 + floor(dock_size(h) / 2.0) + 10.0
+}
+
+# 0 = tucked away below the screen edge, 1 = out; animated in the main loop.
 fn dock_y(h) {
-    return h - dock_size(h) - floor(dock_size(h) / 2.0)
+    bind slide = floor((1.0 - st_get("dock_vis", 0.0)) * (dock_room(h) + 40.0))
+    return h - dock_size(h) - floor(dock_size(h) / 2.0) + slide
+}
+
+# Windows stay above the dock while it is out: pushed up, never under it.
+fn win_key(name) {
+    if name == "packages" { return "pk" }
+    if name == "viewer" { return "view" }
+    if name == "settings" { return "set" }
+    return name
+}
+
+fn keep_windows_clear(h) {
+    bind lim = dock_y(h) - 12.0
+    bind i = 0.0
+    while i < len(WIN_NAMES) {
+        bind n = list_get(WIN_NAMES, i)
+        if win_open(n) {
+            bind r = win_rect(n)
+            bind wy = list_get(r, 1.0)
+            bind wh = list_get(r, 3.0)
+            if wy + wh > lim { st_set(win_key(n) + "_y", max(TOP_H + 1.0, lim - wh)) }
+        }
+        bind i = i + 1.0
+    }
+    return 0.0
 }
 
 fn dock_at(mx, my, w, h) {
+    if st_get("dock_vis", 0.0) < 0.9 { return 0.0 - 1.0 }
     bind sz = dock_size(h)
     bind i = 0.0
     while i < len(APP_GLYPH) {
@@ -150,6 +529,11 @@ fn dock_at(mx, my, w, h) {
 }
 
 fn dock(w, h, mx, my) {
+    if st_get("dock_vis", 0.0) < 0.02 {
+        # a hairline handle where the dock will slide out
+        px_rect(floor(w / 2.0) - 40.0, h - 3.0, 80.0, 2.0, C_BORDER)
+        return 0.0
+    }
     bind sz = dock_size(h)
     bind n = len(APP_GLYPH)
     bind x0 = dock_x(0.0, w, h)
@@ -162,13 +546,13 @@ fn dock(w, h, mx, my) {
     while i < n {
         bind dx = dock_x(i, w, h)
         bind hot = hover == i || (ksel == i && st_get("menu", 0.0) < 0.5)
-        if hot { px_rrect(dx - 3.0, dy - 3.0, sz + 6.0, sz + 6.0, 12.0, C_ACCENT) }
+        if hot { px_rrect(dx - 3.0, dy - 3.0, sz + 6.0, sz + 6.0, 12.0, accent()) }
         px_rrect(dx, dy, sz, sz, 10.0, C_PANEL)
         bind g = list_get(APP_GLYPH, i)
         bind gs = sel(sz >= 48.0, 3.0, 2.0)
         px_text8(dx + (sz - len(g) * 8.0 * gs) / 2.0, dy + (sz - 8.0 * gs) / 2.0, C_TEXT, g, gs)
         if list_get(APP_KIND, i) == "about" && st_get("about", 0.0) > 0.5 {
-            px_disc(dx + sz / 2.0, dy + sz + 7.0, 3.0, C_ACCENT)
+            px_disc(dx + sz / 2.0, dy + sz + 7.0, 3.0, accent())
         }
         bind i = i + 1.0
     }
@@ -233,7 +617,7 @@ fn apps_menu(mx, my) {
     px_rrect(rx + 4.0, ry + 5.0, MENU_W, rh, 10.0, 0.0, 0.31)
     px_rrect(rx, ry, MENU_W, rh, 10.0, C_BORDER)
     px_rrect(rx + 1.0, ry + 1.0, MENU_W - 2.0, rh - 2.0, 9.0, C_PANEL)
-    t8(rx + 12.0, ry + 8.0, C_ACCENT, "Applications")
+    t8(rx + 12.0, ry + 8.0, accent(), "Applications")
     bind hover = menu_row_at(mx, my)
     if hover >= 0.0 { st_set("menu_sel", hover) }
     bind msel = st_get("menu_sel", 0.0)
@@ -247,7 +631,7 @@ fn apps_menu(mx, my) {
         } else {
             bind ai = to_number(v)
             if ai == msel {
-                px_rrect(rx + 4.0, yy + 2.0, MENU_W - 8.0, MENU_ROW_H - 3.0, 5.0, C_ACCENT)
+                px_rrect(rx + 4.0, yy + 2.0, MENU_W - 8.0, MENU_ROW_H - 3.0, 5.0, accent())
                 t8(rx + 24.0, yy + 7.0, C_PANEL, app_label(ai))
             } else {
                 t8(rx + 24.0, yy + 7.0, C_TEXT, app_label(ai))
@@ -260,30 +644,31 @@ fn apps_menu(mx, my) {
 # ── About window (x86 window chrome) ─────────────────────────────────────────
 
 fn window_frame(x, y, ww, wh, title, focused) {
-    px_rrect(x + 6.0, y + 8.0, ww, wh, 10.0, 0.0, 0.27)
-    px_rrect(x, y, ww, wh, 10.0, sel(focused, C_ACCENT, C_BORDER))
-    px_rrect(x + 1.0, y + 1.0, ww - 2.0, wh - 2.0, 9.0, C_PANEL)
+    px_rrect(x + 4.0, y + 6.0, ww, wh, 7.0, 0.0, 0.35)
+    px_rrect(x, y, ww, wh, 7.0, sel(focused, accent(), C_BORDER))
+    px_rrect(x + 1.0, y + 1.0, ww - 2.0, wh - 2.0, 6.0, C_PANEL)
     bind tbc = sel(focused, C_TITLE, C_TITLE_IDLE)
-    px_rrect(x + 1.0, y + 1.0, ww - 2.0, TB, 9.0, tbc)
-    px_rect(x + 1.0, y + TB - 8.0, ww - 2.0, 8.0, tbc)
-    t8(x + 12.0, y + 11.0, sel(focused, C_TEXT, C_DIM), title)
+    px_rrect(x + 1.0, y + 1.0, ww - 2.0, TB, 6.0, tbc)
+    px_rect(x + 1.0, y + TB - 6.0, ww - 2.0, 6.0, tbc)
+    px_rect(x + 1.0, y + TB, ww - 2.0, 1.0, sel(focused, accent(), C_BORDER))
+    t8(x + 12.0, y + 11.0, sel(focused, C_STRONG, C_DIM), title)
     bind cy = y + TB / 2.0
-    px_disc(x + ww - 2.0 * TB - TB / 2.0, cy, 6.0, 5947498.0)
-    px_disc(x + ww - TB - TB / 2.0, cy, 6.0, 14721098.0)
-    px_disc(x + ww - TB / 2.0, cy, 6.0, 14704730.0)
+    px_disc(x + ww - 2.0 * TB - TB / 2.0, cy, 5.0, 5947498.0)
+    px_disc(x + ww - TB - TB / 2.0, cy, 5.0, 14721098.0)
+    px_disc(x + ww - TB / 2.0, cy, 5.0, 14704730.0)
 }
 
 fn about_window() {
     bind x = st_get("about_x", 0.0)
     bind y = st_get("about_y", 0.0)
-    window_frame(x, y, ABOUT_W, ABOUT_H, "About LingOS", true)
+    window_frame(x, y, ABOUT_W, ABOUT_H, "About LingOS", st_get("focus", "") == "about")
     bind cx = x + 16.0
     bind cy = y + TB + 14.0
-    t8(cx, cy, C_ACCENT, "LingOS")
+    t8(cx, cy, accent(), "LingOS")
     t8(cx, cy + 18.0, C_TEXT, "a from-scratch OS written in Ling")
     t8(cx, cy + 44.0, C_DIM, "uptime: " + uptime_words())
     t8(cx, cy + 62.0, C_DIM, "theme:")
-    t8(cx + 64.0, cy + 62.0, C_TEXT, "Dusk")
+    t8(cx + 64.0, cy + 62.0, C_TEXT, "LingStation look, " + list_get(ACCENT_NAMES, st_get("accent", 4.0)) + " accent")
     bind rows = ["board", "memory", "display", "mouse", "keyboard", "network"]
     bind i = 0.0
     while i < len(rows) {
@@ -372,7 +757,7 @@ fn files_open_win(w, h) {
     st_set("fmsg", "")
     st_set("files_x", floor((w - FILES_W) / 2.0) - 60.0)
     st_set("files_y", floor((h - FILES_H) / 2.0) - 40.0)
-    st_set("focus", "files")
+    win_raise("files")
 }
 
 fn files_rows() {
@@ -411,7 +796,7 @@ fn files_activate(i) {
     st_set("viewer_kind", sel(k == "picture", "picture", "text"))
     st_set("view_x", st_get("files_x", 100.0) + 80.0)
     st_set("view_y", st_get("files_y", 80.0) + 40.0)
-    st_set("focus", "viewer")
+    win_raise("viewer")
     return 0.0
 }
 
@@ -460,7 +845,7 @@ fn files_window(mx, my) {
     bind cx = x + 16.0
     bind cy = y + TB + 12.0
     bind dir = st_get("fdir", home_dir())
-    t8(cx, cy, C_ACCENT, sel(dir == "", "/", dir))
+    t8(cx, cy, accent(), sel(dir == "", "/", dir))
     t8(x + FILES_W - 72.0, cy, C_DIM, "[ up ]")
     bind items = files_items()
     bind n = len(items) / 2.0
@@ -473,8 +858,8 @@ fn files_window(mx, my) {
         bind i = sc + r
         bind ry = cy + 22.0 + r * ROW_H
         if i == fsel {
-            px_rrect(cx - 4.0, ry - 4.0, FILES_W - 24.0, ROW_H - 4.0, 5.0, C_ACCENT, 0.35)
-            px_rrect_outline(cx - 4.0, ry - 4.0, FILES_W - 24.0, ROW_H - 4.0, 5.0, C_ACCENT)
+            px_rrect(cx - 4.0, ry - 4.0, FILES_W - 24.0, ROW_H - 4.0, 5.0, accent(), 0.35)
+            px_rrect_outline(cx - 4.0, ry - 4.0, FILES_W - 24.0, ROW_H - 4.0, 5.0, accent())
         } else if inside(mx, my, cx - 4.0, ry - 4.0, FILES_W - 24.0, ROW_H - 4.0) {
             px_rrect(cx - 4.0, ry - 4.0, FILES_W - 24.0, ROW_H - 4.0, 5.0, C_TITLE)
         }
@@ -517,7 +902,7 @@ fn pk_open(w, h) {
     st_set("pkgs_win", 1.0)
     st_set("pk_x", floor((w - PK_W) / 2.0) + 40.0)
     st_set("pk_y", max(TOP_H + 8.0, floor((h - PK_H) / 2.0) - 20.0))
-    st_set("focus", "packages")
+    win_raise("packages")
     st_set("pk_sel", 0.0)
     st_set("pk_scroll", 0.0)
     st_set("pk_msg", "fetching the catalog from fu.ling-lang.org...")
@@ -562,8 +947,8 @@ fn pk_window(mx, my) {
     bind cx = x + 16.0
     bind cy = y + TB + 12.0
     bind tab = st_get("pk_tab", 0.0)
-    t8(cx, cy, sel(tab < 0.5, C_ACCENT, C_DIM), "[ LingOS apps ]")
-    t8(cx + 136.0, cy, sel(tab > 0.5, C_ACCENT, C_DIM), "[ all packages ]")
+    t8(cx, cy, sel(tab < 0.5, accent(), C_DIM), "[ LingOS apps ]")
+    t8(cx + 136.0, cy, sel(tab > 0.5, accent(), C_DIM), "[ all packages ]")
     t8(x + PK_W - 92.0, cy, C_DIM, "[ resync ]")
     bind items = st_get("pk_items", [])
     bind vis = pk_visible()
@@ -580,8 +965,8 @@ fn pk_window(mx, my) {
         bind i = list_get(vis, vi)
         bind ry = cy + 24.0 + r * PK_ROW
         if vi == psel {
-            px_rrect(cx - 4.0, ry - 4.0, PK_W - 24.0, PK_ROW - 4.0, 5.0, C_ACCENT, 0.35)
-            px_rrect_outline(cx - 4.0, ry - 4.0, PK_W - 24.0, PK_ROW - 4.0, 5.0, C_ACCENT)
+            px_rrect(cx - 4.0, ry - 4.0, PK_W - 24.0, PK_ROW - 4.0, 5.0, accent(), 0.35)
+            px_rrect_outline(cx - 4.0, ry - 4.0, PK_W - 24.0, PK_ROW - 4.0, 5.0, accent())
         } else if inside(mx, my, cx - 4.0, ry - 4.0, PK_W - 24.0, PK_ROW - 4.0) {
             px_rrect(cx - 4.0, ry - 4.0, PK_W - 24.0, PK_ROW - 4.0, 5.0, C_TITLE)
         }
@@ -592,7 +977,7 @@ fn pk_window(mx, my) {
         t8(cx + 2.0, ry, C_TEXT, nm)
         t8(cx + 2.0 + (str_len(nm) + 1.0) * 8.0, ry, C_DIM, meta)
         bind badge = sel(inst, sel(isapp, "installed - app (enter runs)", "installed"), sel(list_get(items, i * PK_F + 5.0) > 0.5, "LingOS", ""))
-        t8(x + PK_W - 16.0 - str_len(badge) * 8.0, ry, sel(inst, 5947498.0, C_ACCENT), badge)
+        t8(x + PK_W - 16.0 - str_len(badge) * 8.0, ry, sel(inst, 5947498.0, accent()), badge)
         bind desc = list_get(items, i * PK_F + 2.0)
         bind maxc = floor((PK_W - 40.0) / 8.0)
         t8(cx + 2.0, ry + 11.0, C_DIM, sel(str_len(desc) > maxc, str_slice(desc, 0.0, maxc - 3.0) + "...", desc))
@@ -675,7 +1060,7 @@ fn viewer_window() {
 
 fn wifi_open(w, h) {
     st_set("wifi_win", 1.0)
-    st_set("focus", "wifi")
+    win_raise("wifi")
     st_set("wifi_x", floor((w - WIFI_W) / 2.0))
     st_set("wifi_y", floor((h - WIFI_H) / 2.0 - 30.0))
     st_set("wifi_mode", "list")
@@ -702,18 +1087,33 @@ fn wifi_rows() {
     return l
 }
 
-fn wifi_bars(x, y, dbm) {
-    bind n = sel(dbm >= 0.0 - 55.0, 4.0, sel(dbm >= 0.0 - 65.0, 3.0, sel(dbm >= 0.0 - 75.0, 2.0, 1.0)))
+# Signal strength as four bars, coloured by how good it is (white on a selected row).
+fn wifi_bars(x, y, dbm, on_sel) {
+    bind lv = wifi_level(dbm)
+    bind col = sel(lv >= 3.0, C_GOOD, sel(lv >= 2.0, C_WARN, C_BAD))
+    if on_sel { bind col = C_TEXT }
     bind i = 0.0
     while i < 4.0 {
-        px_rect(x + i * 6.0, y + 12.0 - (i + 1.0) * 3.0, 4.0, (i + 1.0) * 3.0, sel(i < n, C_ACCENT, C_BORDER))
+        px_rrect(x + i * 6.0, y + 14.0 - (i + 1.0) * 3.5, 4.0, (i + 1.0) * 3.5, 1.0, sel(i < lv, col, sel(on_sel, C_TITLE, C_BORDER)))
         bind i = i + 1.0
     }
     return 0.0
 }
 
+# A small padlock (secured networks).
+fn wifi_lock(x, y, col) {
+    px_ring(x + 4.0, y + 3.0, 3.0, 1.0, col)
+    px_rrect(x, y + 4.0, 9.0, 7.0, 2.0, col)
+    return 0.0
+}
+
+fn wifi_band(ch) {
+    if ch > 14.0 { return "5 GHz" }
+    return "2.4 GHz"
+}
+
 fn wifi_max_rows() {
-    return floor((WIFI_H - TB - 110.0) / WIFI_ROW)
+    return floor((WIFI_H - TB - 12.0 - 96.0 - 62.0) / WIFI_ROW)
 }
 
 fn wifi_first_row() {
@@ -722,20 +1122,76 @@ fn wifi_first_row() {
     return max(0.0, min(st_get("wifi_sel", 0.0) - maxr + 1.0, len(rows) - maxr))
 }
 
+# Where the list starts (below the header card).
+fn wifi_list_y() {
+    return st_get("wifi_y", 0.0) + TB + 12.0 + 96.0
+}
+
+# A pill button; returns whether the pointer is over it.
+fn wifi_pill(x, y, bw, label, mx, my, primary) {
+    bind hot = inside(mx, my, x, y, bw, 26.0)
+    bind bg = sel(primary, accent(), C_TITLE)
+    if hot { bind bg = sel(primary, 6065648.0, C_BORDER) }
+    px_rrect(x, y, bw, 26.0, 13.0, bg)
+    t8(x + floor((bw - len(label) * 8.0) / 2.0), y + 9.0, sel(primary, C_PANEL, C_TEXT), label)
+    return hot
+}
+
+# Button rectangles [x, y, w] by name, for drawing and for clicks.
+fn wifi_btn(name) {
+    bind x = st_get("wifi_x", 0.0)
+    bind y = st_get("wifi_y", 0.0)
+    bind by = y + WIFI_H - 46.0
+    if name == "connect" { return [x + 16.0, by, 108.0] }
+    if name == "rescan" { return [x + 134.0, by, 96.0] }
+    if name == "forget" { return [x + 240.0, by, 96.0] }
+    if name == "header" { return [x + WIFI_W - 16.0 - 108.0, y + TB + 12.0 + 19.0, 108.0] }
+    if name == "pass_ok" { return [x + WIFI_W - 28.0 - 108.0, y + WIFI_H - 86.0 + 32.0, 108.0] }
+    return [0.0, 0.0, 0.0]
+}
+
 fn wifi_window(mx, my) {
     bind x = st_get("wifi_x", 0.0)
     bind y = st_get("wifi_y", 0.0)
-    window_frame(x, y, WIFI_W, WIFI_H, "Wi-Fi networks", st_get("focus", "") == "wifi")
-    bind cx = x + 16.0
-    bind cy = y + TB + 10.0
-    t8(cx, cy, C_DIM, wifi_status())
+    bind focused = st_get("focus", "") == "wifi"
+    window_frame(x, y, WIFI_W, WIFI_H, "Wi-Fi networks", focused)
+    bind joined = wifi_available() && wifi_joined()
+    bind msg = st_get("wifi_msg", "")
+
+    # Header card: the connection you have (or not), and a Rescan / Disconnect button.
+    bind hy = y + TB + 12.0
+    px_rrect(x + 12.0, hy, WIFI_W - 24.0, 64.0, 8.0, C_DOCK)
+    px_rect(x + 12.0, hy + 8.0, 3.0, 48.0, sel(joined, C_GOOD, C_BORDER))
+    bind lv = sel(joined, wifi_level(wifi_signal()), 0.0)
+    bind i = 0.0
+    while i < 4.0 {
+        px_rrect(x + 30.0 + i * 9.0, hy + 44.0 - (i + 1.0) * 7.0, 6.0, (i + 1.0) * 7.0, 2.0, sel(i < lv, C_GOOD, C_BORDER))
+        bind i = i + 1.0
+    }
+    if !wifi_available() {
+        t8(x + 76.0, hy + 16.0, C_TEXT, "No Wi-Fi radio on this board")
+        t8(x + 76.0, hy + 36.0, C_DIM, "Raspberry Pi 5 only")
+    } else if joined {
+        t8(x + 76.0, hy + 16.0, C_TEXT, "Connected to " + wifi_ssid())
+        bind ip = os_info("ip")
+        t8(x + 76.0, hy + 36.0, C_DIM, num_str(wifi_signal()) + " dBm   " + sel(ip == "", "getting an address...", ip))
+    } else {
+        t8(x + 76.0, hy + 16.0, C_TEXT, "Not connected")
+        t8(x + 76.0, hy + 36.0, C_DIM, sel(msg == "", "pick a network below", str_slice(msg, 0.0, 44.0)))
+    }
+    bind hb = wifi_btn("header")
+    if wifi_available() { wifi_pill(list_get(hb, 0.0), list_get(hb, 1.0), list_get(hb, 2.0), sel(joined, "Disconnect", "Rescan"), mx, my, false) }
+
+    # The list
     bind rows = wifi_rows()
     bind l = st_get("wifi_list", [])
-    bind ly = cy + 24.0
+    t8(x + 16.0, hy + 78.0, C_DIM, sel(st_get("wifi_scan", 0.0) > 0.5, "SCANNING...", "AVAILABLE NETWORKS" + sel(len(rows) > 0.5, "  " + num_str(len(rows)), "")))
+    bind ly = wifi_list_y()
     if len(rows) < 0.5 {
-        bind why = st_get("wifi_msg", "")
+        bind why = sel(st_get("wifi_scan", 0.0) > 0.5, "looking for networks...", "none found yet -- Rescan")
         if len(l) > 0.5 { bind why = str_replace(list_get(l, 0.0), "!", "") }
-        t8(cx, ly + 8.0, C_TEXT, why)
+        px_rrect(x + 12.0, ly, WIFI_W - 24.0, 32.0, 6.0, C_DOCK)
+        t8(x + 24.0, ly + 12.0, C_DIM, why)
     }
     bind sel_i = st_get("wifi_sel", 0.0)
     bind maxr = wifi_max_rows()
@@ -744,40 +1200,138 @@ fn wifi_window(mx, my) {
     while i < len(rows) && i < first + maxr {
         bind row = list_get(rows, i)
         bind ry = ly + (i - first) * WIFI_ROW
-        if i == sel_i { px_rrect(cx - 6.0, ry - 3.0, WIFI_W - 20.0, WIFI_ROW - 2.0, 5.0, C_ACCENT) }
-        bind fg = sel(i == sel_i, C_PANEL, C_TEXT)
-        wifi_bars(cx, ry, to_number(wifi_field(row, 1.0)))
-        t8(cx + 34.0, ry + 2.0, fg, wifi_field(row, 0.0))
-        t8(x + WIFI_W - 150.0, ry + 2.0, sel(i == sel_i, C_PANEL, C_DIM), wifi_field(row, 2.0) + "  ch " + wifi_field(row, 3.0))
+        bind on = i == sel_i
+        bind hot = inside(mx, my, x + 12.0, ry, WIFI_W - 24.0, 32.0)
+        px_rrect(x + 12.0, ry, WIFI_W - 24.0, 32.0, 6.0, sel(on, accent(), sel(hot, C_TITLE, C_DOCK)))
+        bind fg = sel(on, C_PANEL, C_TEXT)
+        bind dim = sel(on, C_PANEL, C_DIM)
+        wifi_bars(x + 24.0, ry + 8.0, to_number(wifi_field(row, 1.0)), on)
+        bind ssid = wifi_field(row, 0.0)
+        bind name = ssid
+        if len(name) > 28.0 { bind name = str_slice(name, 0.0, 26.0) + ".." }
+        t8(x + 58.0, ry + 12.0, fg, name)
+        bind secu = wifi_field(row, 2.0)
+        bind ch = to_number(wifi_field(row, 3.0))
+        bind pw = len(secu) * 8.0 + 14.0
+        bind pxr = x + WIFI_W - 24.0 - pw
+        px_rrect(pxr, ry + 7.0, pw, 18.0, 9.0, sel(on, 6065648.0, C_TITLE))
+        t8(pxr + 7.0, ry + 12.0, sel(on, C_TEXT, C_DIM), secu)
+        if secu != "open" { wifi_lock(pxr - 16.0, ry + 10.0, dim) }
+        bind chs = "ch " + num_str(ch) + "  " + wifi_band(ch)
+        t8(pxr - 30.0 - len(chs) * 8.0, ry + 12.0, dim, chs)
+        if joined && ssid == wifi_ssid() {
+            px_disc(x + 58.0 + len(name) * 8.0 + 10.0, ry + 16.0, 3.0, sel(on, C_TEXT, C_GOOD))
+            t8(x + 58.0 + len(name) * 8.0 + 18.0, ry + 12.0, sel(on, C_TEXT, C_GOOD), "connected")
+        }
         bind i = i + 1.0
     }
-    bind by = y + WIFI_H - 62.0
+    # scroll hint
+    if len(rows) > maxr {
+        bind track = maxr * WIFI_ROW - 4.0
+        bind knob = max(20.0, track * maxr / len(rows))
+        bind ky = ly + (track - knob) * first / max(1.0, len(rows) - maxr)
+        px_rrect(x + WIFI_W - 9.0, ly, 3.0, track, 1.5, C_BORDER)
+        px_rrect(x + WIFI_W - 9.0, ky, 3.0, knob, 1.5, C_DIM)
+    }
+
+    # Bottom: the passphrase prompt, or the buttons
     if st_get("wifi_mode", "") == "pass" {
-        px_rrect(cx - 4.0, by - 6.0, WIFI_W - 24.0, 26.0, 5.0, C_DOCK)
+        bind by = y + WIFI_H - 86.0
+        px_rrect(x + 12.0, by, WIFI_W - 24.0, 72.0, 8.0, C_DOCK)
+        t8(x + 24.0, by + 10.0, C_TEXT, "Password for " + st_get("wifi_ssid", ""))
+        bind fw = WIFI_W - 48.0 - 124.0
+        px_rrect(x + 24.0, by + 30.0, fw, 30.0, 6.0, C_PANEL)
+        px_rrect_outline(x + 24.0, by + 30.0, fw, 30.0, 6.0, accent())
         bind dots = ""
         bind k = 0.0
         while k < str_len(st_get("wifi_pass", "")) {
             bind dots = dots + "*"
             bind k = k + 1.0
         }
-        t8(cx, by + 3.0, C_TEXT, "passphrase for " + st_get("wifi_ssid", "") + ": " + dots + "_")
-        t8(cx, y + WIFI_H - 24.0, C_DIM, "Enter: connect   Esc: back   (no quotes or backslashes)")
+        if len(dots) > 48.0 { bind dots = str_slice(dots, len(dots) - 48.0, 48.0) }
+        bind caret = sel(floor(os_uptime() * 2.0) - floor(os_uptime()) * 2.0 < 0.5, "_", " ")
+        t8(x + 34.0, by + 41.0, C_TEXT, dots + caret)
+        bind pb = wifi_btn("pass_ok")
+        wifi_pill(list_get(pb, 0.0), list_get(pb, 1.0), list_get(pb, 2.0), "Connect", mx, my, true)
+        t8(x + 16.0, y + WIFI_H - 10.0 - 8.0, C_DIM, "Enter: connect   Esc: back")
     } else {
-        t8(cx, by + 3.0, C_DIM, st_get("wifi_msg", ""))
-        t8(cx, y + WIFI_H - 24.0, C_DIM, "Enter: connect   r: rescan   f: forget   Esc: close")
+        bind cb = wifi_btn("connect")
+        bind rb = wifi_btn("rescan")
+        bind fb = wifi_btn("forget")
+        if wifi_available() {
+            wifi_pill(list_get(cb, 0.0), list_get(cb, 1.0), list_get(cb, 2.0), "Connect", mx, my, true)
+            wifi_pill(list_get(rb, 0.0), list_get(rb, 1.0), list_get(rb, 2.0), "Rescan", mx, my, false)
+            wifi_pill(list_get(fb, 0.0), list_get(fb, 1.0), list_get(fb, 2.0), "Forget", mx, my, false)
+        }
+        bind hint = "r: rescan   f: forget"
+        t8(x + WIFI_W - 16.0 - len(hint) * 8.0, y + WIFI_H - 46.0 + 9.0, C_DIM, hint)
     }
 }
 
 fn wifi_row_at(mx, my) {
     bind x = st_get("wifi_x", 0.0)
-    bind y = st_get("wifi_y", 0.0)
-    bind ly = y + TB + 34.0
+    bind ly = wifi_list_y()
     bind maxr = wifi_max_rows()
-    if !inside(mx, my, x + 10.0, ly - 3.0, WIFI_W - 20.0, maxr * WIFI_ROW) { return 0.0 - 1.0 }
+    if !inside(mx, my, x + 12.0, ly, WIFI_W - 24.0, maxr * WIFI_ROW) { return 0.0 - 1.0 }
     bind rows = wifi_rows()
-    bind r = floor((my - (ly - 3.0)) / WIFI_ROW) + wifi_first_row()
+    bind r = floor((my - ly) / WIFI_ROW) + wifi_first_row()
     if r < 0.0 || r >= len(rows) { return 0.0 - 1.0 }
+    if my - ly - (r - wifi_first_row()) * WIFI_ROW >= 32.0 { return 0.0 - 1.0 }
     return r
+}
+
+fn wifi_hit(mx, my, name) {
+    bind b = wifi_btn(name)
+    return inside(mx, my, list_get(b, 0.0), list_get(b, 1.0), list_get(b, 2.0), 26.0)
+}
+
+# A click inside the window body: buttons first, then the list.
+fn wifi_click(mx, my) {
+    if !wifi_available() { return 0.0 }
+    if st_get("wifi_mode", "") == "pass" {
+        if wifi_hit(mx, my, "pass_ok") {
+            st_set("wifi_mode", "list")
+            st_set("wifi_msg", "joining " + st_get("wifi_ssid", "") + "...")
+            st_set("wifi_join", 1.0)
+        }
+        return 0.0
+    }
+    if wifi_hit(mx, my, "header") {
+        if wifi_joined() {
+            wifi_disconnect()
+            st_set("wifi_msg", "disconnected")
+        } else {
+            st_set("wifi_msg", "scanning...")
+            st_set("wifi_scan", 1.0)
+        }
+        return 0.0
+    }
+    if wifi_hit(mx, my, "connect") {
+        wifi_activate()
+        return 0.0
+    }
+    if wifi_hit(mx, my, "rescan") {
+        st_set("wifi_msg", "scanning...")
+        st_set("wifi_scan", 1.0)
+        return 0.0
+    }
+    if wifi_hit(mx, my, "forget") {
+        wifi_forget()
+        st_set("wifi_msg", "forgot the saved network")
+        return 0.0
+    }
+    bind wi = wifi_row_at(mx, my)
+    if wi >= 0.0 {
+        bind now = os_uptime()
+        if wi == st_get("wifi_sel", 0.0) && now - st_get("wclick_t", 0.0) < 0.45 {
+            wifi_activate()
+            st_set("wclick_t", 0.0)
+        } else {
+            st_set("wifi_sel", wi)
+            st_set("wclick_t", now)
+        }
+    }
+    return 0.0
 }
 
 # Enter on a network: open ones join at once, secured ones ask for the passphrase.
@@ -822,9 +1376,7 @@ fn wifi_type() {
 bind TRAY_W = 310.0
 
 fn tray_wifi_x(w) {
-    bind clock = clock_str()
-    bind cx = w - len(clock) * 8.0 - 14.0
-    return cx - 150.0 - 44.0
+    return tray_sound_x(w) - 36.0
 }
 
 fn wifi_level(dbm) {
@@ -847,13 +1399,13 @@ fn tray_wifi_icon(w) {
     bind x = tray_wifi_x(w)
     if st_get("tray_wifi", 0.0) > 0.5 { px_rrect(x - 6.0, 4.0, 32.0, 22.0, 5.0, C_TITLE) }
     if !wifi_available() {
-        bars(x, 9.0, 0.0, C_ACCENT, C_BORDER)
+        bars(x, 9.0, 0.0, accent(), C_BORDER)
         return 0.0
     }
     if wifi_joined() {
-        bars(x, 9.0, wifi_level(wifi_signal()), C_ACCENT, C_BORDER)
+        bars(x, 9.0, wifi_level(wifi_signal()), accent(), C_BORDER)
     } else {
-        bars(x, 9.0, 0.0, C_ACCENT, C_BORDER)
+        bars(x, 9.0, 0.0, accent(), C_BORDER)
         px_disc(x + 18.0, 19.0, 3.0, 14704730.0)
     }
     return 0.0
@@ -870,7 +1422,7 @@ fn tray_rect(w) {
 
 fn tray_button(x, y, bw, label, mx, my) {
     bind hot = inside(mx, my, x, y, bw, 24.0)
-    px_rrect(x, y, bw, 24.0, 6.0, sel(hot, C_ACCENT, C_TITLE))
+    px_rrect(x, y, bw, 24.0, 6.0, sel(hot, accent(), C_TITLE))
     t8(x + floor((bw - len(label) * 8.0) / 2.0), y + 8.0, sel(hot, C_PANEL, C_TEXT), label)
     return 0.0
 }
@@ -892,11 +1444,11 @@ fn tray_wifi_popup(w, mx, my) {
         return 0.0
     }
     if wifi_joined() {
-        bars(cx, cy + 2.0, wifi_level(wifi_signal()), C_ACCENT, C_BORDER)
+        bars(cx, cy + 2.0, wifi_level(wifi_signal()), accent(), C_BORDER)
         t8(cx + 28.0, cy, C_TEXT, wifi_ssid())
         t8(cx + 28.0, cy + 16.0, C_DIM, "connected  " + num_str(wifi_signal()) + " dBm  " + os_info("ip"))
     } else {
-        bars(cx, cy + 2.0, 0.0, C_ACCENT, C_BORDER)
+        bars(cx, cy + 2.0, 0.0, accent(), C_BORDER)
         t8(cx + 28.0, cy, C_TEXT, "Not connected")
         t8(cx + 28.0, cy + 16.0, C_DIM, str_slice(st_get("wifi_msg", "pick a network below"), 0.0, 32.0))
     }
@@ -913,8 +1465,8 @@ fn tray_wifi_popup(w, mx, my) {
     while i < len(rows) {
         bind row = list_get(rows, i)
         if inside(mx, my, x + 8.0, ly - 3.0, TRAY_W - 16.0, 22.0) { px_rrect(x + 8.0, ly - 3.0, TRAY_W - 16.0, 22.0, 5.0, C_TITLE) }
-        bars(cx, ly + 2.0, wifi_level(to_number(wifi_field(row, 1.0))), C_ACCENT, C_BORDER)
-        t8(cx + 28.0, ly + 2.0, sel(wifi_field(row, 0.0) == wifi_ssid(), C_ACCENT, C_TEXT), wifi_field(row, 0.0))
+        bars(cx, ly + 2.0, wifi_level(to_number(wifi_field(row, 1.0))), accent(), C_BORDER)
+        t8(cx + 28.0, ly + 2.0, sel(wifi_field(row, 0.0) == wifi_ssid(), accent(), C_TEXT), wifi_field(row, 0.0))
         t8(x + TRAY_W - 56.0, ly + 2.0, C_DIM, wifi_field(row, 2.0))
         bind ly = ly + 22.0
         bind i = i + 1.0
@@ -1027,7 +1579,7 @@ fn run_app(i, w, h) {
         return 0.0
     }
     if kind == "settings" {
-        os_setup()
+        settings_open(w, h)
         return 0.0
     }
     # a built-in app is only there when its kernel target bundled it (rpi-lingstation / rpi-lingdev)
@@ -1084,6 +1636,8 @@ bind start = do {
     px_flat()
     st_set("mouse_info", os_info("mouse"))
     st_set("kbd_info", os_info("keyboard"))
+    settings_load()
+    st_set("dock_key_t", os_uptime() + 2.0)
     bind prev_down = false
     while window_is_open() {
         bind w = get_width()
@@ -1103,11 +1657,39 @@ bind start = do {
         bind menu_open = st_get("menu", 0.0) > 0.5
         bind about_open = st_get("about", 0.0) > 0.5
 
+        # The dock slides out when the pointer touches the bottom edge (or the
+        # keyboard walks it), stays while the pointer is over it, slides back after.
+        bind dv = st_get("dock_vis", 0.0)
+        bind want = st_get("dock_auto", 1.0) < 0.5 || my >= h - 3.0 || (dv > 0.5 && my >= dock_y(h) - 14.0) || os_uptime() - st_get("dock_key_t", 0.0 - 9.0) < 2.5
+        if st_get("dragging", 0.0) > 0.5 { bind want = dv > 0.5 }
+        st_set("dock_vis", sel(want, min(1.0, dv + 0.2), max(0.0, dv - 0.1)))
+
+        # Alt+Tab cycles the open windows, most recent first; let go of Alt
+        # to land on the highlighted one (Shift+Tab goes back).
+        bind z = zorder()
+        if key_down("alt") && key_pressed("tab") && len(z) > 1.5 {
+            if st_get("switch", 0.0) < 0.5 {
+                st_set("switch", 1.0)
+                st_set("switch_i", 1.0)
+            } else {
+                bind n = len(z)
+                bind pick = st_get("switch_i", 0.0) + sel(key_down("shift"), n - 1.0, 1.0)
+                st_set("switch_i", pick - floor(pick / n) * n)
+            }
+            st_set("menu", 0.0)
+        } else if st_get("switch", 0.0) > 0.5 && !key_down("alt") {
+            st_set("switch", 0.0)
+            bind pick = st_get("switch_i", 0.0)
+            if pick >= 0.0 && pick < len(z) { win_raise(list_get(z, len(z) - 1.0 - pick)) }
+        }
+
         # keyboard
         if key_pressed("super") {
             st_set("menu", sel(menu_open, 0.0, 1.0))
         } else if key_pressed("escape") {
-            if menu_open {
+            if st_get("switch", 0.0) > 0.5 {
+                st_set("switch", 0.0)
+            } else if menu_open {
                 st_set("menu", 0.0)
             } else if st_get("tray_wifi", 0.0) > 0.5 {
                 st_set("tray_wifi", 0.0)
@@ -1115,19 +1697,23 @@ bind start = do {
                 if st_get("wifi_mode", "") == "pass" { st_set("wifi_mode", "list") } else { st_set("wifi_win", 0.0) }
             } else if st_get("viewer", "") != "" {
                 st_set("viewer", "")
-                st_set("focus", "files")
+                win_raise("files")
             } else if st_get("pkgs_win", 0.0) > 0.5 && st_get("focus", "") == "packages" {
                 st_set("pkgs_win", 0.0)
             } else if st_get("files", 0.0) > 0.5 && st_get("focus", "") == "files" {
                 st_set("files", 0.0)
-            } else if about_open {
+            } else if st_get("set_win", 0.0) > 0.5 && st_get("focus", "") == "settings" {
+                st_set("set_win", 0.0)
+            } else if about_open && st_get("focus", "") == "about" {
                 st_set("about", 0.0)
             } else {
                 st_set("menu", 1.0)
             }
         }
         bind menu_open = st_get("menu", 0.0) > 0.5
-        if menu_open {
+        if st_get("switch", 0.0) > 0.5 {
+            st_set("switch", 1.0)
+        } else if menu_open {
             if key_pressed("down") { menu_step(1.0) }
             if key_pressed("up") { menu_step(0.0 - 1.0) }
             if key_pressed("enter") { run_app(st_get("menu_sel", 0.0), w, h) }
@@ -1214,6 +1800,7 @@ bind start = do {
             files_keep_visible()
         } else {
             bind ds = st_get("dock_sel", 0.0 - 1.0)
+            if key_pressed("right") || key_pressed("left") || key_pressed("tab") { st_set("dock_key_t", os_uptime()) }
             if key_pressed("right") || key_pressed("tab") { st_set("dock_sel", sel(ds + 1.0 >= len(APP_GLYPH), 0.0, ds + 1.0)) }
             if key_pressed("left") { st_set("dock_sel", sel(ds - 1.0 < 0.0, len(APP_GLYPH) - 1.0, ds - 1.0)) }
             if key_pressed("enter") && st_get("dock_sel", 0.0 - 1.0) >= 0.0 { run_app(st_get("dock_sel", 0.0), w, h) }
@@ -1247,57 +1834,58 @@ bind start = do {
             bind twx = tray_wifi_x(w)
             bind tr = tray_rect(w)
             bind tray_open = st_get("tray_wifi", 0.0) > 0.5
+            bind hw = win_at(mx, my)
+            bind sr = tray_sound_rect(w)
+            bind sound_open = st_get("tray_sound", 0.0) > 0.5
             if tray_open && inside(mx, my, list_get(tr, 0.0), list_get(tr, 1.0), TRAY_W, list_get(tr, 3.0)) {
                 tray_wifi_click(mx, my, w, h)
+            } else if sound_open && inside(mx, my, list_get(sr, 0.0), list_get(sr, 1.0), list_get(sr, 2.0), list_get(sr, 3.0)) {
+                tray_sound_click(mx, my, w, h)
             } else if inside(mx, my, twx - 6.0, 0.0, 32.0, TOP_H) {
+                st_set("tray_sound", 0.0)
                 tray_wifi_toggle()
+            } else if inside(mx, my, tray_sound_x(w) - 6.0, 0.0, 32.0, TOP_H) {
+                st_set("tray_wifi", 0.0)
+                st_set("tray_sound", sel(sound_open, 0.0, 1.0))
             } else if tray_open {
                 st_set("tray_wifi", 0.0)
+            } else if sound_open {
+                st_set("tray_sound", 0.0)
             } else if menu_open && inside(mx, my, 6.0, 31.0, MENU_W, menu_h()) {
                 if menu_row_at(mx, my) >= 0.0 { run_app(menu_row_at(mx, my), w, h) }
-            } else if viewing && inside(mx, my, vx + VIEW_W - 2.0 * TB, vy, 2.0 * TB, TB) {
+            } else if hw == "viewer" && inside(mx, my, vx + VIEW_W - 2.0 * TB, vy, 2.0 * TB, TB) {
                 st_set("viewer", "")
-                st_set("focus", "files")
-            } else if viewing && inside(mx, my, vx, vy, VIEW_W - 3.0 * TB, TB) {
+                win_raise("files")
+            } else if hw == "viewer" && inside(mx, my, vx, vy, VIEW_W - 3.0 * TB, TB) {
                 st_set("dragging", 1.0)
                 st_set("drag_win", "view")
                 st_set("drag_dx", mx - vx)
                 st_set("drag_dy", my - vy)
-                st_set("focus", "viewer")
-            } else if viewing && inside(mx, my, vx, vy, VIEW_W, VIEW_H) {
-                st_set("focus", "viewer")
-            } else if wifi_now && inside(mx, my, wx + WIFI_W - 2.0 * TB, wy, 2.0 * TB, TB) {
+                win_raise("viewer")
+            } else if hw == "viewer" && inside(mx, my, vx, vy, VIEW_W, VIEW_H) {
+                win_raise("viewer")
+            } else if hw == "wifi" && inside(mx, my, wx + WIFI_W - 2.0 * TB, wy, 2.0 * TB, TB) {
                 st_set("wifi_win", 0.0)
-            } else if wifi_now && inside(mx, my, wx, wy, WIFI_W - 3.0 * TB, TB) {
+            } else if hw == "wifi" && inside(mx, my, wx, wy, WIFI_W - 3.0 * TB, TB) {
                 st_set("dragging", 1.0)
                 st_set("drag_win", "wifi")
                 st_set("drag_dx", mx - wx)
                 st_set("drag_dy", my - wy)
-                st_set("focus", "wifi")
-            } else if wifi_now && inside(mx, my, wx, wy, WIFI_W, WIFI_H) {
-                st_set("focus", "wifi")
+                win_raise("wifi")
+            } else if hw == "wifi" && inside(mx, my, wx, wy, WIFI_W, WIFI_H) {
+                win_raise("wifi")
                 st_set("menu", 0.0)
-                bind wi = wifi_row_at(mx, my)
-                if wi >= 0.0 {
-                    bind now = os_uptime()
-                    if wi == st_get("wifi_sel", 0.0) && now - st_get("wclick_t", 0.0) < 0.45 {
-                        wifi_activate()
-                        st_set("wclick_t", 0.0)
-                    } else {
-                        st_set("wifi_sel", wi)
-                        st_set("wclick_t", now)
-                    }
-                }
-            } else if pk_open_now && inside(mx, my, px + PK_W - 2.0 * TB, py, 2.0 * TB, TB) {
+                wifi_click(mx, my)
+            } else if hw == "packages" && inside(mx, my, px + PK_W - 2.0 * TB, py, 2.0 * TB, TB) {
                 st_set("pkgs_win", 0.0)
-            } else if pk_open_now && inside(mx, my, px, py, PK_W - 3.0 * TB, TB) {
+            } else if hw == "packages" && inside(mx, my, px, py, PK_W - 3.0 * TB, TB) {
                 st_set("dragging", 1.0)
                 st_set("drag_win", "pk")
                 st_set("drag_dx", mx - px)
                 st_set("drag_dy", my - py)
-                st_set("focus", "packages")
-            } else if pk_open_now && inside(mx, my, px, py, PK_W, PK_H) {
-                st_set("focus", "packages")
+                win_raise("packages")
+            } else if hw == "packages" && inside(mx, my, px, py, PK_W, PK_H) {
+                win_raise("packages")
                 st_set("menu", 0.0)
                 bind tcy = py + TB + 12.0
                 if inside(mx, my, px + 16.0, tcy - 4.0, 128.0, 16.0) {
@@ -1323,16 +1911,16 @@ bind start = do {
                         st_set("pkclick_t", now)
                     }
                 }
-            } else if files_open && inside(mx, my, fx + FILES_W - 2.0 * TB, fy, 2.0 * TB, TB) {
+            } else if hw == "files" && inside(mx, my, fx + FILES_W - 2.0 * TB, fy, 2.0 * TB, TB) {
                 st_set("files", 0.0)
-            } else if files_open && inside(mx, my, fx, fy, FILES_W - 3.0 * TB, TB) {
+            } else if hw == "files" && inside(mx, my, fx, fy, FILES_W - 3.0 * TB, TB) {
                 st_set("dragging", 1.0)
                 st_set("drag_win", "files")
                 st_set("drag_dx", mx - fx)
                 st_set("drag_dy", my - fy)
-                st_set("focus", "files")
-            } else if files_open && inside(mx, my, fx, fy, FILES_W, FILES_H) {
-                st_set("focus", "files")
+                win_raise("files")
+            } else if hw == "files" && inside(mx, my, fx, fy, FILES_W, FILES_H) {
+                win_raise("files")
                 st_set("menu", 0.0)
                 if inside(mx, my, fx + FILES_W - 80.0, fy + TB + 6.0, 70.0, 18.0) { files_up() }
                 bind fi = files_row_at(mx, my)
@@ -1354,30 +1942,53 @@ bind start = do {
                 st_set("menu", 1.0)
             } else if dock_at(mx, my, w, h) >= 0.0 {
                 run_app(dock_at(mx, my, w, h), w, h)
-            } else if about_open && inside(mx, my, ax + ABOUT_W - 2.0 * TB, ay, 2.0 * TB, TB) {
+            } else if hw == "settings" && inside(mx, my, st_get("set_x", 0.0) + SET_W - 2.0 * TB, st_get("set_y", 0.0), 2.0 * TB, TB) {
+                st_set("set_win", 0.0)
+            } else if hw == "settings" && inside(mx, my, st_get("set_x", 0.0), st_get("set_y", 0.0), SET_W - 3.0 * TB, TB) {
+                st_set("dragging", 1.0)
+                st_set("drag_win", "set")
+                st_set("drag_dx", mx - st_get("set_x", 0.0))
+                st_set("drag_dy", my - st_get("set_y", 0.0))
+                win_raise("settings")
+            } else if hw == "settings" {
+                win_raise("settings")
+                st_set("menu", 0.0)
+                settings_click(mx, my, w, h)
+            } else if hw == "about" && inside(mx, my, ax + ABOUT_W - 2.0 * TB, ay, 2.0 * TB, TB) {
                 st_set("about", 0.0)
-            } else if about_open && inside(mx, my, ax, ay, ABOUT_W - 3.0 * TB, TB) {
+            } else if hw == "about" && inside(mx, my, ax, ay, ABOUT_W - 3.0 * TB, TB) {
                 st_set("dragging", 1.0)
                 st_set("drag_win", "about")
                 st_set("drag_dx", mx - ax)
                 st_set("drag_dy", my - ay)
+                win_raise("about")
+                st_set("menu", 0.0)
+            } else if hw == "about" && inside(mx, my, ax, ay, ABOUT_W, ABOUT_H) {
+                win_raise("about")
                 st_set("menu", 0.0)
             } else {
                 st_set("menu", 0.0)
             }
         }
 
+        keep_windows_clear(h)
+
         # draw, back to front (same order as the x86 desktop loop)
         wallpaper(w, h)
         top_bar(w, mx, my)
-        if st_get("about", 0.0) > 0.5 { about_window() }
-        if st_get("files", 0.0) > 0.5 { files_window(mx, my) }
-        if st_get("pkgs_win", 0.0) > 0.5 { pk_window(mx, my) }
-        if st_get("wifi_win", 0.0) > 0.5 { wifi_window(mx, my) }
-        if st_get("viewer", "") != "" { viewer_window() }
+        bind z = zorder()
+        st_set("zorder", z)
+        if len(z) > 0.5 && st_get("focus", "") != list_get(z, len(z) - 1.0) { st_set("focus", list_get(z, len(z) - 1.0)) }
+        bind k = 0.0
+        while k < len(z) {
+            win_draw(list_get(z, k), mx, my)
+            bind k = k + 1.0
+        }
         dock(w, h, mx, my)
         if st_get("menu", 0.0) > 0.5 { apps_menu(mx, my) }
         if st_get("tray_wifi", 0.0) > 0.5 { tray_wifi_popup(w, mx, my) }
+        if st_get("tray_sound", 0.0) > 0.5 { tray_sound_popup(w, mx, my) }
+        if st_get("switch", 0.0) > 0.5 { switcher(w, h) }
         status_line(h)
         present()
         # Network work after the frame is on screen (it blocks for seconds).
