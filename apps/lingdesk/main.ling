@@ -27,7 +27,7 @@ bind C_DOCK = 657930.0         # 10,10,10   deep background
 bind ACCENTS = [15551031.0, 16225310.0, 16242758.0, 4573296.0, 3910379.0, 4875480.0, 10114006.0]
 bind ACCENT_NAMES = ["Red", "Orange", "Yellow", "Green", "Blue", "Indigo", "Violet"]
 bind SET_W = 560.0
-bind SET_H = 400.0
+bind SET_H = 470.0
 
 fn accent() {
     return list_get(ACCENTS, st_get("accent", 4.0))
@@ -687,10 +687,19 @@ fn settings_tab_network(x, cx, cy, mx, my) {
     bind msg = st_get("net_msg", "")
     if msg != "" { t8(cx, cy + 194.0, C_TEXT, str_slice(msg, 0.0, 64.0)) }
     # The hardware addresses, for a router's static lease or allow list.
-    t8(cx, cy + 222.0, C_TEXT, "Ethernet MAC")
-    t8(cx + 120.0, cy + 222.0, C_DIM, os_info("mac"))
-    t8(cx, cy + 240.0, C_TEXT, "Wi-Fi MAC")
-    t8(cx + 120.0, cy + 240.0, C_DIM, os_info("mac_wifi"))
+    t8(cx, cy + 216.0, C_TEXT, "Ethernet MAC")
+    t8(cx + 120.0, cy + 216.0, C_DIM, os_info("mac"))
+    t8(cx, cy + 232.0, C_TEXT, "Wi-Fi MAC")
+    t8(cx + 120.0, cy + 232.0, C_DIM, os_info("mac_wifi"))
+    # Step by step: ARP, DNS, TCP, HTTPS (runs after the frame; a few seconds).
+    wifi_pill(cx + 340.0, cy + 70.0, 100.0, sel(st_get("net_test", 0.0) > 0.5, "testing...", "Test"), mx, my, false)
+    bind lines = str_split(st_get("net_test_out", ""), "\n")
+    bind li = 0.0
+    while li < len(lines) && li < 5.0 {
+        bind ln = list_get(lines, li)
+        if ln != "" { t8(cx, cy + 256.0 + li * 16.0, sel(str_find(ln, "fail") >= 0.0 || str_find(ln, "no ") >= 0.0, C_WARN, C_DIM), str_slice(ln, 0.0, 66.0)) }
+        bind li = li + 1.0
+    }
     return 0.0
 }
 
@@ -771,6 +780,10 @@ fn settings_click(mx, my, w, h) {
             bind i = i + 1.0
         }
         if inside(mx, my, cx + 340.0, cy + 36.0, 100.0, 26.0) { settings_net_apply() }
+        if inside(mx, my, cx + 340.0, cy + 70.0, 100.0, 26.0) {
+            st_set("net_test", 1.0)
+            st_set("net_test_out", "")
+        }
     }
     if tab == 4.0 {
         bind by = cy + 48.0
@@ -2488,6 +2501,10 @@ bind start = do {
                 st_set("pk_install", "")
                 st_set("pk_msg", lingfu_install(nm))
                 pk_refresh()
+            }
+            if st_get("net_test", 0.0) > 0.5 {
+                st_set("net_test", 0.0)
+                st_set("net_test_out", os_net_test())
             }
             if st_get("wifi_scan", 0.0) > 0.5 {
                 st_set("wifi_scan", 0.0)
