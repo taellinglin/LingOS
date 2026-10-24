@@ -686,6 +686,11 @@ fn settings_tab_network(x, cx, cy, mx, my) {
     t8(cx, cy + 176.0, C_DIM, "now: " + sel(ip == "", "no address", ip) + sel(static, "  (static)", "  (DHCP unless a static address is set)"))
     bind msg = st_get("net_msg", "")
     if msg != "" { t8(cx, cy + 194.0, C_TEXT, str_slice(msg, 0.0, 64.0)) }
+    # The hardware addresses, for a router's static lease or allow list.
+    t8(cx, cy + 222.0, C_TEXT, "Ethernet MAC")
+    t8(cx + 120.0, cy + 222.0, C_DIM, os_info("mac"))
+    t8(cx, cy + 240.0, C_TEXT, "Wi-Fi MAC")
+    t8(cx + 120.0, cy + 240.0, C_DIM, os_info("mac_wifi"))
     return 0.0
 }
 
@@ -1140,7 +1145,7 @@ fn about_window() {
     t8(cx, cy + 44.0, C_DIM, "uptime: " + uptime_words())
     t8(cx, cy + 62.0, C_DIM, "theme:")
     t8(cx + 64.0, cy + 62.0, C_TEXT, "LingStation look, " + list_get(ACCENT_NAMES, st_get("accent", 4.0)) + " accent")
-    bind rows = ["board", "memory", "display", "mouse", "keyboard", "network"]
+    bind rows = ["board", "memory", "display", "mouse", "keyboard", "network", "mac", "mac_wifi"]
     bind i = 0.0
     while i < len(rows) {
         bind k = list_get(rows, i)
