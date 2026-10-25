@@ -37,13 +37,13 @@ bind TOP_H = 30.0
 bind TB = 28.0                 # TITLEBAR_H
 
 # Apps: dock letter, label, action ("app:<name>" = built-in app).
-bind APP_GLYPH = ["L", "D", "F", ">", "W", "A", "S", "i", "M", "P", "H", "@"]
-bind APP_LABEL = ["LingStationX (music studio)", "LingDev (game editor)", "Files", "Console", "Wi-Fi networks", "HDMI audio test", "Settings", "About LingOS", "LingModeler (3D, vector, rigging)", "Packages (lingfu)", "Horizon (web browser)", "Messenger (LAN chat)"]
-bind APP_KIND = ["app:lingstation", "app:lingdev", "files", "console", "wifi", "console:hdmiaudio", "settings", "about", "app:lingmodeler", "packages", "app:horizon", "app:messenger"]
+bind APP_GLYPH = ["L", "D", "F", ">", "W", "A", "S", "i", "M", "P", "H", "@", "T"]
+bind APP_LABEL = ["LingStationX (music studio)", "LingDev (game editor)", "Files", "Console (full screen)", "Wi-Fi networks", "HDMI audio test", "Settings", "About LingOS", "LingModeler (3D, vector, rigging)", "Packages (lingfu)", "Horizon (web browser)", "Messenger (LAN chat)", "Terminal"]
+bind APP_KIND = ["app:lingstation", "app:lingdev", "files", "console", "wifi", "console:hdmiaudio", "settings", "about", "app:lingmodeler", "packages", "app:horizon", "app:messenger", "terminal"]
 
 # Applications menu rows: "#header" or an app index. Installed lingfu
 # packages follow as "#Installed" + indices past the built-ins (menu_rows()).
-bind MENU_ROWS = ["#Sound & Video", "0", "5", "#Development", "1", "8", "#Internet", "10", "11", "4", "#Accessories", "2", "3", "#System", "9", "6", "7"]
+bind MENU_ROWS = ["#Sound & Video", "0", "5", "#Development", "1", "8", "#Internet", "10", "11", "4", "#Accessories", "2", "12", "3", "#System", "9", "6", "7"]
 bind PK_W = 660.0
 bind PK_H = 440.0
 bind PK_ROW = 30.0
@@ -78,7 +78,10 @@ fn inside(mx, my, x, y, w, h) {
 # ── Windows: stacking order and focus ────────────────────────────────────────
 # "zorder" lists the open windows bottom to top; the top one has the focus.
 # A click or Alt+Tab raises a window (win_raise); closed ones fall out.
-bind WIN_NAMES = ["about", "files", "packages", "wifi", "viewer", "settings"]
+bind WIN_NAMES = ["about", "files", "packages", "wifi", "viewer", "settings", "terminal"]
+bind TERM_W = 720.0
+bind TERM_H = 440.0
+bind TERM_LINE_H = 16.0
 
 fn list_has(l, v) {
     bind i = 0.0
@@ -96,12 +99,14 @@ fn win_open(name) {
     if name == "wifi" { return st_get("wifi_win", 0.0) > 0.5 }
     if name == "viewer" { return st_get("viewer", "") != "" }
     if name == "settings" { return st_get("set_win", 0.0) > 0.5 }
+    if name == "terminal" { return st_get("term_win", 0.0) > 0.5 }
     return false
 }
 
 fn win_title(name) {
     if name == "about" { return "About LingOS" }
     if name == "files" { return "Files" }
+    if name == "terminal" { return "Terminal" }
     if name == "packages" { return "Packages" }
     if name == "wifi" { return "Wi-Fi networks" }
     if name == "settings" { return "Settings" }
@@ -116,6 +121,7 @@ fn win_glyph(name) {
     if name == "about" { return "i" }
     if name == "files" { return "F" }
     if name == "packages" { return "P" }
+    if name == "terminal" { return "T" }
     if name == "wifi" { return "W" }
     if name == "settings" { return "S" }
     return "V"
@@ -127,6 +133,7 @@ fn win_rect(name) {
     if name == "packages" { return [st_get("pk_x", 0.0), st_get("pk_y", 0.0), PK_W, PK_H] }
     if name == "wifi" { return [st_get("wifi_x", 0.0), st_get("wifi_y", 0.0), WIFI_W, WIFI_H] }
     if name == "settings" { return [st_get("set_x", 0.0), st_get("set_y", 0.0), SET_W, SET_H] }
+    if name == "terminal" { return [st_get("term_x", 0.0), st_get("term_y", 0.0), TERM_W, TERM_H] }
     return [st_get("view_x", 0.0), st_get("view_y", 0.0), VIEW_W, VIEW_H]
 }
 
@@ -521,6 +528,7 @@ fn settings_load() {
             if k == "dock_auto" { st_set("dock_auto", to_number(v)) }
             if k == "pause_audio" { st_set("pause_audio", to_number(v)) }
             if k == "perf" { st_set("perf", to_number(v)) }
+            if k == "tz" { st_set("tz", max(0.0 - 12.0, min(14.0, to_number(v)))) }
             if k == "net_mode" { st_set("net_mode", v) }
             if k == "net_ip" { st_set("net_ip", v) }
             if k == "net_mask" { st_set("net_mask", v) }
@@ -557,7 +565,7 @@ fn net_prefill() {
 fn settings_save() {
     fs_mkdir(fs_join(fs_home(), "Programs"))
     fs_mkdir(fs_join(fs_join(fs_home(), "Programs"), "LingOS"))
-    write_file(settings_path(), "accent=" + num_str(st_get("accent", 4.0)) + "\ndock_auto=" + num_str(st_get("dock_auto", 1.0)) + "\npause_audio=" + num_str(st_get("pause_audio", 1.0)) + "\nperf=" + num_str(st_get("perf", 0.0)) + "\nnet_mode=" + st_get("net_mode", "dhcp") + "\nnet_ip=" + st_get("net_ip", "") + "\nnet_mask=" + st_get("net_mask", "") + "\nnet_gw=" + st_get("net_gw", "") + "\nnet_dns=" + st_get("net_dns", "") + "\n")
+    write_file(settings_path(), "accent=" + num_str(st_get("accent", 4.0)) + "\ndock_auto=" + num_str(st_get("dock_auto", 1.0)) + "\npause_audio=" + num_str(st_get("pause_audio", 1.0)) + "\nperf=" + num_str(st_get("perf", 0.0)) + "\ntz=" + num_str(st_get("tz", 0.0)) + "\nnet_mode=" + st_get("net_mode", "dhcp") + "\nnet_ip=" + st_get("net_ip", "") + "\nnet_mask=" + st_get("net_mask", "") + "\nnet_gw=" + st_get("net_gw", "") + "\nnet_dns=" + st_get("net_dns", "") + "\n")
     return 0.0
 }
 
@@ -720,6 +728,14 @@ fn settings_tab_system(cx, cy, mx, my) {
     t8(cx, by + 76.0, C_DIM, "Set up storage uses the free space after the boot partition (the console asks).")
     t8(cx, by + 100.0, C_DIM, "Alt+Tab switches windows    Super: Applications    w: Wi-Fi")
     toggle(cx, by + 128.0, st_get("perf", 0.0) > 0.5, "Show frame timing over apps (ms per frame, calls, collections)", mx, my)
+    # the clock: the board's real-time clock when it has one, shown in this zone
+    bind tz = st_get("tz", 0.0)
+    t8(cx, by + 164.0, C_TEXT, "Clock")
+    t8(cx + 120.0, by + 164.0, C_DIM, sel(os_time() > 0.0, clock_str() + "  UTC" + sel(tz >= 0.0, "+", "") + num_str(tz), "no real-time clock: the bar shows the time since power-on"))
+    tray_button(cx + 400.0, by + 158.0, 40.0, "-", mx, my)
+    tray_button(cx + 450.0, by + 158.0, 40.0, "+", mx, my)
+    tray_button(cx, by + 198.0, 110.0, "Restart", mx, my)
+    tray_button(cx + 120.0, by + 198.0, 110.0, "Shut down", mx, my)
     return 0.0
 }
 
@@ -800,6 +816,10 @@ fn settings_click(mx, my, w, h) {
             settings_apply()
             settings_save()
         }
+        if inside(mx, my, cx + 400.0, by + 158.0, 40.0, 24.0) { st_set("tz", max(0.0 - 12.0, st_get("tz", 0.0) - 1.0))  settings_save() }
+        if inside(mx, my, cx + 450.0, by + 158.0, 40.0, 24.0) { st_set("tz", min(14.0, st_get("tz", 0.0) + 1.0))  settings_save() }
+        if inside(mx, my, cx, by + 198.0, 110.0, 24.0) { os_reboot() }
+        if inside(mx, my, cx + 120.0, by + 198.0, 110.0, 24.0) { os_poweroff() }
         if inside(mx, my, cx + sel(ready, 0.0, 240.0), by + 34.0, 110.0, 24.0) {
             st_set("about", 1.0)
             st_set("about_x", floor((w - ABOUT_W) / 2.0) - 40.0)
@@ -839,6 +859,7 @@ fn win_draw(name, mx, my) {
     if name == "packages" { pk_window(mx, my) }
     if name == "wifi" { wifi_window(mx, my) }
     if name == "viewer" { viewer_window() }
+    if name == "terminal" { term_window(mx, my) }
     return 0.0
 }
 
@@ -851,7 +872,16 @@ fn two(n) {
     return "" + n
 }
 
+# the wall clock when the board has one (local time by the Settings > System zone), else uptime
 fn clock_str() {
+    bind t = os_time()
+    if t > 0.0 {
+        bind s = floor(t + st_get("tz", 0.0) * 3600.0)
+        bind d = s - floor(s / 86400.0) * 86400.0
+        bind hh = floor(d / 3600.0)
+        bind mm = floor((d - hh * 3600.0) / 60.0)
+        return two(hh) + ":" + two(mm)
+    }
     bind s = floor(os_uptime())
     bind hh = floor(s / 3600.0)
     bind mm = floor((s - hh * 3600.0) / 60.0)
@@ -994,6 +1024,7 @@ fn win_key(name) {
     if name == "packages" { return "pk" }
     if name == "viewer" { return "view" }
     if name == "settings" { return "set" }
+    if name == "terminal" { return "term" }
     return name
 }
 
@@ -1282,7 +1313,8 @@ fn files_activate(i) {
     }
     bind k = file_kind(nm)
     if k == "audio" {
-        st_set("fmsg", "sound needs an audio driver on the Pi -- not yet")
+        bind m = music_load(full)
+        if m < 0.0 { st_set("fmsg", "could not decode " + nm + " (WAV only)") } else { music_play(m)  st_set("fmsg", "playing " + nm) }
         return 0.0
     }
     if k == "video" {
@@ -2067,6 +2099,10 @@ fn run_app(i, w, h) {
         wifi_open(w, h)
         return 0.0
     }
+    if kind == "terminal" {
+        term_open(w, h)
+        return 0.0
+    }
     if kind == "console" {
         os_console("")
         return 0.0
@@ -2208,6 +2244,8 @@ bind start = do {
                     st_set("pkgs_win", 0.0)
                 } else if st_get("files", 0.0) > 0.5 && st_get("focus", "") == "files" {
                     st_set("files", 0.0)
+                } else if st_get("term_win", 0.0) > 0.5 && st_get("focus", "") == "terminal" {
+                    st_set("term_win", 0.0)
                 } else if st_get("set_win", 0.0) > 0.5 && st_get("focus", "") == "settings" {
                     st_set("set_win", 0.0)
                 } else if about_open && st_get("focus", "") == "about" {
@@ -2245,6 +2283,8 @@ bind start = do {
                         st_set("wifi_msg", "forgot the saved network")
                     }
                 }
+            } else if st_get("term_win", 0.0) > 0.5 && st_get("focus", "") == "terminal" {
+                term_keys()
             } else if st_get("set_win", 0.0) > 0.5 && st_get("focus", "") == "settings" {
                 settings_keys()
             } else if st_get("pkgs_win", 0.0) > 0.5 && st_get("focus", "") == "packages" {
@@ -2372,6 +2412,17 @@ bind start = do {
                     win_raise("viewer")
                 } else if hw == "viewer" && inside(mx, my, vx, vy, VIEW_W, VIEW_H) {
                     win_raise("viewer")
+                } else if hw == "terminal" && inside(mx, my, st_get("term_x", 0.0) + TERM_W - 2.0 * TB, st_get("term_y", 0.0), 2.0 * TB, TB) {
+                    st_set("term_win", 0.0)
+                } else if hw == "terminal" && inside(mx, my, st_get("term_x", 0.0), st_get("term_y", 0.0), TERM_W - 3.0 * TB, TB) {
+                    st_set("dragging", 1.0)
+                    st_set("drag_win", "term")
+                    st_set("drag_dx", mx - st_get("term_x", 0.0))
+                    st_set("drag_dy", my - st_get("term_y", 0.0))
+                    win_raise("terminal")
+                } else if hw == "terminal" {
+                    win_raise("terminal")
+                    st_set("menu", 0.0)
                 } else if hw == "wifi" && inside(mx, my, wx + WIFI_W - 2.0 * TB, wy, 2.0 * TB, TB) {
                     st_set("wifi_win", 0.0)
                 } else if hw == "wifi" && inside(mx, my, wx, wy, WIFI_W - 3.0 * TB, TB) {
@@ -2529,4 +2580,122 @@ bind start = do {
             }
         }
     }
+}
+
+# ── Terminal window ──────────────────────────────────────────────────────────
+# The console's commands in a desktop window: each line runs through os_shell,
+# which hands back what the command printed. Commands that need the whole
+# screen (an app, setup, `ling run`) are sent to the full-screen Console.
+fn term_rows() { return floor((TERM_H - TB - 56.0) / TERM_LINE_H) }
+
+bind TERM_COLS = 86.0
+
+fn term_push(line) {
+    // wrap at the window width so long command output stays readable
+    while str_len(line) > TERM_COLS {
+        term_push_raw(str_slice(line, 0.0, TERM_COLS))
+        bind line = str_slice(line, TERM_COLS, str_len(line) - TERM_COLS)
+    }
+    return term_push_raw(line)
+}
+
+fn term_push_raw(line) {
+    bind l = st_get("term_lines", [])
+    bind l = list_push(l, line)
+    if len(l) > 400.0 {
+        bind keep = []
+        bind i = len(l) - 300.0
+        while i < len(l) {
+            bind keep = list_push(keep, list_get(l, i))
+            bind i = i + 1.0
+        }
+        bind l = keep
+    }
+    st_set("term_lines", l)
+    return 0.0
+}
+
+fn term_open(w, h) {
+    if st_get("term_win", 0.0) < 0.5 {
+        st_set("term_x", floor((w - TERM_W) / 2.0) + 30.0)
+        st_set("term_y", floor((h - TERM_H) / 2.0) - 10.0)
+        if len(st_get("term_lines", [])) < 0.5 {
+            term_push("LingOS terminal -- `help` lists the commands; apps and `ling run` open full screen")
+        }
+    }
+    st_set("term_win", 1.0)
+    st_set("term_in", "")
+    text_poll()
+    win_raise("terminal")
+    return 0.0
+}
+
+fn term_window(mx, my) {
+    bind x = st_get("term_x", 0.0)
+    bind y = st_get("term_y", 0.0)
+    bind focused = st_get("focus", "") == "terminal"
+    window_frame(x, y, TERM_W, TERM_H, "Terminal", focused)
+    bind cx = x + 14.0
+    bind cy = y + TB + 10.0
+    px_rrect(x + 8.0, cy - 4.0, TERM_W - 16.0, TERM_H - TB - 16.0, 5.0, 1052688.0)
+    bind lines = st_get("term_lines", [])
+    bind rows = term_rows()
+    bind n = len(lines)
+    bind first = max(0.0, n - rows)
+    bind r = 0.0
+    while first + r < n {
+        bind ln = list_get(lines, first + r)
+        t8(cx, cy + r * TERM_LINE_H, sel(str_starts_with(ln, "$ "), accent(), C_TEXT), str_slice(ln, 0.0, TERM_COLS))
+        bind r = r + 1.0
+    }
+    bind py = cy + min(r, rows) * TERM_LINE_H
+    if py > y + TERM_H - 30.0 { bind py = y + TERM_H - 30.0 }
+    bind caret = sel(focused && floor(os_uptime() * 2.0) - floor(os_uptime()) * 2.0 < 0.5, "_", " ")
+    t8(cx, py, accent(), "lingos$ ")
+    t8(cx + 64.0, py, C_STRONG, str_slice(st_get("term_in", ""), max(0.0, str_len(st_get("term_in", "")) - 76.0), 76.0) + caret)
+    return 0.0
+}
+
+fn term_keys() {
+    bind pend = text_poll()
+    bind buf = st_get("term_in", "")
+    bind run = false
+    bind i = 0.0
+    while i < str_len(pend) {
+        bind ch = str_slice(pend, i, 1.0)
+        if ch == "\n" { bind run = true }
+        else if str_find(PRINTABLE, ch) >= 0.0 { bind buf = buf + ch }
+        bind i = i + 1.0
+    }
+    if key_pressed("backspace") && str_len(buf) > 0.0 { bind buf = str_slice(buf, 0.0, str_len(buf) - 1.0) }
+    if key_pressed("up") { bind buf = st_get("term_last", buf) }
+    st_set("term_in", buf)
+    if run {
+        st_set("term_in", "")
+        term_run(str_trim(buf))
+    }
+    return 0.0
+}
+
+fn term_run(cmd) {
+    if cmd == "" { return 0.0 }
+    st_set("term_last", cmd)
+    term_push("$ " + cmd)
+    if cmd == "clear" { st_set("term_lines", [])  return 0.0 }
+    if cmd == "exit" { st_set("term_win", 0.0)  return 0.0 }
+    # the full-screen ones: hand them to the text console (Ctrl+Q / exit returns)
+    bind full = cmd == "setup" || str_starts_with(cmd, "ling run") || str_starts_with(cmd, "ling demo") || cmd == "sd format" || list_has(os_apps(), cmd)
+    if full {
+        os_console(cmd)
+        return 0.0
+    }
+    bind out = os_shell(cmd)
+    bind ls = str_split(out, "\n")
+    bind i = 0.0
+    while i < len(ls) {
+        bind ln = list_get(ls, i)
+        if ln != "" || i + 1.0 < len(ls) { term_push(ln) }
+        bind i = i + 1.0
+    }
+    return 0.0
 }
