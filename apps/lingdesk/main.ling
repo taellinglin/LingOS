@@ -387,6 +387,7 @@ bind LOGIN_W = 460.0
 bind LOGIN_H = 320.0
 
 fn lock_screen() {
+    os_lock()
     bind users = os_users()
     st_set("login_users", users)
     # No account yet: a blank name to type. Otherwise the signed-in (or first) user, password next.
@@ -434,6 +435,27 @@ fn login_submit() {
         }
         return 0.0
     }
+    if os_user_reset_pending(user) {
+        if str_len(pass) < 4.0 {
+            st_set("login_msg", "the new password needs at least 4 characters")
+            return 0.0
+        }
+        if pass != st_get("login_pass2", "") {
+            st_set("login_msg", "the two passwords differ -- type them again")
+            st_set("login_pass", "")
+            st_set("login_pass2", "")
+            st_set("login_focus", "login_pass")
+            return 0.0
+        }
+        if os_user_reset(user, pass) {
+            st_set("locked", 0.0)
+            st_set("login_pass", "")
+            st_set("login_pass2", "")
+        } else {
+            st_set("login_msg", "could not set the password (storage not writable?)")
+        }
+        return 0.0
+    }
     if os_login(user, pass) {
         st_set("locked", 0.0)
         st_set("login_pass", "")
@@ -448,6 +470,7 @@ fn login_frame(w, h, mx, my, click) {
     wallpaper(w, h)
     bind users = st_get("login_users", [])
     bind creating = len(users) < 0.5
+    bind resetting = !creating && os_user_reset_pending(st_get("login_user", ""))
     bind x = floor((w - LOGIN_W) / 2.0)
     bind y = floor((h - LOGIN_H) / 2.0) - 20.0
     px_rrect(x + 4.0, y + 6.0, LOGIN_W, LOGIN_H, 8.0, 0.0, 0.4)
@@ -455,7 +478,7 @@ fn login_frame(w, h, mx, my, click) {
     px_rrect(x + 1.0, y + 1.0, LOGIN_W - 2.0, LOGIN_H - 2.0, 7.0, C_PANEL)
     px_rect(x + 1.0, y + 1.0, LOGIN_W - 2.0, 3.0, accent())
     px_text8(x + 24.0, y + 22.0, accent(), "LingOS", 2.0)
-    t8(x + 24.0, y + 48.0, C_DIM, sel(creating, "Welcome -- create your account", "Sign in"))
+    t8(x + 24.0, y + 48.0, sel(resetting, C_WARN, C_DIM), sel(creating, "Welcome -- create your account", sel(resetting, "Password reset: choose a new password (or your old one)", "Sign in")))
     bind focus = st_get("login_focus", "login_user")
     bind fy = y + 80.0
     t8(x + 24.0, fy + 9.0, C_TEXT, "User")
@@ -463,14 +486,14 @@ fn login_frame(w, h, mx, my, click) {
     t8(x + 24.0, fy + 45.0, C_TEXT, "Password")
     bind hot1 = text_box(x + 120.0, fy + 36.0, LOGIN_W - 144.0, "login_pass", focus == "login_pass", true, mx, my)
     bind hot2 = false
-    if creating {
+    if creating || resetting {
         t8(x + 24.0, fy + 81.0, C_TEXT, "Again")
         bind hot2 = text_box(x + 120.0, fy + 72.0, LOGIN_W - 144.0, "login_pass2", focus == "login_pass2", true, mx, my)
     } else if len(users) > 1.5 {
         t8(x + 24.0, fy + 78.0, C_DIM, "Up / Down: other users")
     }
     bind by = y + LOGIN_H - 64.0
-    bind bhot = wifi_pill(x + LOGIN_W - 24.0 - 120.0, by, 120.0, sel(creating, "Create", "Sign in"), mx, my, true)
+    bind bhot = wifi_pill(x + LOGIN_W - 24.0 - 120.0, by, 120.0, sel(creating, "Create", sel(resetting, "Set", "Sign in")), mx, my, true)
     t8(x + 24.0, by + 9.0, sel(st_get("login_msg", "") == "", C_DIM, C_BAD), sel(st_get("login_msg", "") == "", "Enter: continue   Tab: next field", st_get("login_msg", "")))
     t8(x + 24.0, y + LOGIN_H - 24.0, C_DIM, "passwords are stored Argon2id-hashed on the SD card")
     if click {
@@ -488,7 +511,7 @@ fn login_frame(w, h, mx, my, click) {
         }
         if bhot { login_submit() }
     }
-    bind keys = sel(creating, ["login_user", "login_pass", "login_pass2"], ["login_pass"])
+    bind keys = sel(creating, ["login_user", "login_pass", "login_pass2"], sel(resetting, ["login_pass", "login_pass2"], ["login_pass"]))
     # The name is letters, digits, - and _; passwords any printable character.
     form_type(keys, "login_focus", sel(st_get("login_focus", "") == "login_user", "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_", ""))
     if !creating && len(users) > 1.5 && (key_pressed("down") || key_pressed("up")) {
@@ -529,6 +552,11 @@ fn settings_load() {
             if k == "pause_audio" { st_set("pause_audio", to_number(v)) }
             if k == "perf" { st_set("perf", to_number(v)) }
             if k == "tz" { st_set("tz", max(0.0 - 12.0, min(14.0, to_number(v)))) }
+            if k == "kbd" { os_kbd_layout_set(to_number(v)) }
+            if k == "res" && v != "" && v != os_display_current() {
+                bind parts = str_split(v, "x")
+                if len(parts) > 1.5 && os_display_set(to_number(list_get(parts, 0.0)), to_number(list_get(parts, 1.0))) { st_set("res", v) }
+            }
             if k == "net_mode" { st_set("net_mode", v) }
             if k == "net_ip" { st_set("net_ip", v) }
             if k == "net_mask" { st_set("net_mask", v) }
@@ -565,7 +593,7 @@ fn net_prefill() {
 fn settings_save() {
     fs_mkdir(fs_join(fs_home(), "Programs"))
     fs_mkdir(fs_join(fs_join(fs_home(), "Programs"), "LingOS"))
-    write_file(settings_path(), "accent=" + num_str(st_get("accent", 4.0)) + "\ndock_auto=" + num_str(st_get("dock_auto", 1.0)) + "\npause_audio=" + num_str(st_get("pause_audio", 1.0)) + "\nperf=" + num_str(st_get("perf", 0.0)) + "\ntz=" + num_str(st_get("tz", 0.0)) + "\nnet_mode=" + st_get("net_mode", "dhcp") + "\nnet_ip=" + st_get("net_ip", "") + "\nnet_mask=" + st_get("net_mask", "") + "\nnet_gw=" + st_get("net_gw", "") + "\nnet_dns=" + st_get("net_dns", "") + "\n")
+    write_file(settings_path(), "accent=" + num_str(st_get("accent", 4.0)) + "\ndock_auto=" + num_str(st_get("dock_auto", 1.0)) + "\npause_audio=" + num_str(st_get("pause_audio", 1.0)) + "\nperf=" + num_str(st_get("perf", 0.0)) + "\ntz=" + num_str(st_get("tz", 0.0)) + "\nkbd=" + num_str(os_kbd_layout()) + "\nres=" + st_get("res", "") + "\nnet_mode=" + st_get("net_mode", "dhcp") + "\nnet_ip=" + st_get("net_ip", "") + "\nnet_mask=" + st_get("net_mask", "") + "\nnet_gw=" + st_get("net_gw", "") + "\nnet_dns=" + st_get("net_dns", "") + "\n")
     return 0.0
 }
 
@@ -645,6 +673,40 @@ fn settings_tab_appearance(x, cx, cy, mx, my) {
     t8(cx + 120.0, cy + 118.0, C_DIM, "LingStationX / LingDev chrome")
     t8(cx, cy + 136.0, C_TEXT, "Font")
     t8(cx + 120.0, cy + 136.0, C_DIM, "the 8x8 pixel UI font")
+    # resolution: the modes this display takes; Apply switches live and remembers it
+    bind modes = os_display_modes()
+    bind cur = os_display_current()
+    bind rsel = res_sel_index(modes, cur)
+    t8(cx, cy + 164.0, C_TEXT, "Resolution")
+    t8(cx + 120.0, cy + 164.0, C_DIM, list_get(modes, rsel) + sel(list_get(modes, rsel) == cur, "  (now)", "  (now " + cur + ")"))
+    tray_button(cx + 330.0, cy + 158.0, 40.0, "-", mx, my)
+    tray_button(cx + 380.0, cy + 158.0, 40.0, "+", mx, my)
+    tray_button(cx + 430.0, cy + 158.0, 80.0, "Apply", mx, my)
+    return 0.0
+}
+
+fn res_sel_index(modes, cur) {
+    bind rsel = st_get("res_sel", 0.0 - 1.0)
+    if rsel < 0.0 || rsel >= len(modes) {
+        bind rsel = 0.0
+        bind k = 0.0
+        while k < len(modes) {
+            if list_get(modes, k) == cur { bind rsel = k }
+            bind k = k + 1.0
+        }
+        st_set("res_sel", rsel)
+    }
+    return rsel
+}
+
+fn res_apply(mode) {
+    bind parts = str_split(mode, "x")
+    if len(parts) < 1.5 { return 0.0 }
+    if os_display_set(to_number(list_get(parts, 0.0)), to_number(list_get(parts, 1.0))) {
+        st_set("res", mode)
+        st_set("set_win", 0.0)
+        settings_save()
+    }
     return 0.0
 }
 
@@ -731,11 +793,19 @@ fn settings_tab_system(cx, cy, mx, my) {
     # the clock: the board's real-time clock when it has one, shown in this zone
     bind tz = st_get("tz", 0.0)
     t8(cx, by + 164.0, C_TEXT, "Clock")
-    t8(cx + 120.0, by + 164.0, C_DIM, sel(os_time() > 0.0, clock_str() + "  UTC" + sel(tz >= 0.0, "+", "") + num_str(tz), "no real-time clock: the bar shows the time since power-on"))
+    t8(cx + 120.0, by + 164.0, C_DIM, sel(os_time() > 0.0, clock_str() + "  UTC" + sel(tz >= 0.0, "+", "") + num_str(tz), "no RTC: the bar shows time since power-on"))
     tray_button(cx + 400.0, by + 158.0, 40.0, "-", mx, my)
     tray_button(cx + 450.0, by + 158.0, 40.0, "+", mx, my)
-    tray_button(cx, by + 198.0, 110.0, "Restart", mx, my)
-    tray_button(cx + 120.0, by + 198.0, 110.0, "Shut down", mx, my)
+    bind kbl = os_kbd_layouts()
+    t8(cx, by + 198.0, C_TEXT, "Keyboard")
+    t8(cx + 120.0, by + 198.0, C_DIM, list_get(kbl, os_kbd_layout()) + "  (USB keyboards)")
+    tray_button(cx + 400.0, by + 192.0, 40.0, "-", mx, my)
+    tray_button(cx + 450.0, by + 192.0, 40.0, "+", mx, my)
+    tray_button(cx, by + 232.0, 110.0, "Restart", mx, my)
+    tray_button(cx + 120.0, by + 232.0, 110.0, "Shut down", mx, my)
+    t8(cx, by + 270.0, C_TEXT, "Keyring")
+    t8(cx + 120.0, by + 270.0, C_DIM, str_slice(os_keyring(), 0.0, 52.0))
+    t8(cx + 120.0, by + 288.0, C_DIM, "Private/ files, the Horizon profile and chats are sealed with it")
     return 0.0
 }
 
@@ -764,6 +834,11 @@ fn settings_click(mx, my, w, h) {
             }
             bind i = i + 1.0
         }
+        bind modes = os_display_modes()
+        bind rsel = res_sel_index(modes, os_display_current())
+        if inside(mx, my, cx + 330.0, cy + 158.0, 40.0, 24.0) { st_set("res_sel", sel(rsel < 0.5, len(modes) - 1.0, rsel - 1.0)) }
+        if inside(mx, my, cx + 380.0, cy + 158.0, 40.0, 24.0) { st_set("res_sel", sel(rsel + 1.0 >= len(modes), 0.0, rsel + 1.0)) }
+        if inside(mx, my, cx + 430.0, cy + 158.0, 80.0, 24.0) { res_apply(list_get(modes, rsel)) }
     }
     if tab == 1.0 && inside(mx, my, cx, cy, 500.0, 22.0) {
         st_set("dock_auto", sel(st_get("dock_auto", 1.0) > 0.5, 0.0, 1.0))
@@ -818,8 +893,11 @@ fn settings_click(mx, my, w, h) {
         }
         if inside(mx, my, cx + 400.0, by + 158.0, 40.0, 24.0) { st_set("tz", max(0.0 - 12.0, st_get("tz", 0.0) - 1.0))  settings_save() }
         if inside(mx, my, cx + 450.0, by + 158.0, 40.0, 24.0) { st_set("tz", min(14.0, st_get("tz", 0.0) + 1.0))  settings_save() }
-        if inside(mx, my, cx, by + 198.0, 110.0, 24.0) { os_reboot() }
-        if inside(mx, my, cx + 120.0, by + 198.0, 110.0, 24.0) { os_poweroff() }
+        bind nkl = len(os_kbd_layouts())
+        if inside(mx, my, cx + 400.0, by + 192.0, 40.0, 24.0) { os_kbd_layout_set(sel(os_kbd_layout() < 0.5, nkl - 1.0, os_kbd_layout() - 1.0))  settings_save() }
+        if inside(mx, my, cx + 450.0, by + 192.0, 40.0, 24.0) { os_kbd_layout_set(sel(os_kbd_layout() + 1.0 >= nkl, 0.0, os_kbd_layout() + 1.0))  settings_save() }
+        if inside(mx, my, cx, by + 232.0, 110.0, 24.0) { os_reboot() }
+        if inside(mx, my, cx + 120.0, by + 232.0, 110.0, 24.0) { os_poweroff() }
         if inside(mx, my, cx + sel(ready, 0.0, 240.0), by + 34.0, 110.0, 24.0) {
             st_set("about", 1.0)
             st_set("about_x", floor((w - ABOUT_W) / 2.0) - 40.0)
@@ -1081,6 +1159,11 @@ fn dock(w, h, mx, my) {
         bind kind = list_get(APP_KIND, i)
         if (kind == "about" && st_get("about", 0.0) > 0.5) || list_has(running_entries(), kind) {
             px_disc(dx + sz / 2.0, dy + sz + 7.0, 3.0, sel(kind == "about", accent(), C_GOOD))
+        }
+        if kind == "app:messenger" && msg_unread() > 0.5 {
+            bind nun = min(msg_unread(), 99.0)
+            px_disc(dx + sz - 6.0, dy + 6.0, 9.0, C_WARN)
+            px_text8(dx + sz - 6.0 - len(num_str(nun)) * 4.0, dy + 2.0, C_STRONG, num_str(nun), 1.0)
         }
         bind i = i + 1.0
     }
@@ -1396,8 +1479,68 @@ fn files_window(mx, my) {
         t8(cx + 28.0, ry + 2.0, C_TEXT, list_get(items, i * 2.0))
         bind r = r + 1.0
     }
-    if st_get("fmsg", "") != "" { t8(cx, y + FILES_H - 40.0, 14721098.0, st_get("fmsg", "")) }
-    t8(cx, y + FILES_H - 22.0, C_DIM, "enter: open  backspace: up  h: home  c/x: copy/cut  v: paste  Del: delete")
+    bind fmode = st_get("fmode", "")
+    if fmode != "" {
+        bind py = y + FILES_H - 78.0
+        px_rrect(cx - 6.0, py - 8.0, FILES_W - 20.0, 44.0, 6.0, C_DOCK)
+        if fmode == "delete" {
+            t8(cx, py + 6.0, C_STRONG, "delete " + fs_basename(files_sel_path()) + "?   y: yes   n / Esc: no")
+        } else {
+            t8(cx, py + 6.0, C_STRONG, sel(fmode == "rename", "rename to:", "new folder:"))
+            text_box(cx + 100.0, py - 2.0, FILES_W - 230.0, "fprompt", true, false, mx, my)
+            t8(cx + FILES_W - 118.0, py + 6.0, C_DIM, "Enter / Esc")
+        }
+    } else if st_get("fmsg", "") != "" { t8(cx, y + FILES_H - 40.0, 14721098.0, st_get("fmsg", "")) }
+    t8(cx, y + FILES_H - 22.0, C_DIM, "enter: open  bksp: up  h: home  c/x/v: copy/cut/paste  r: rename  n: new  Del")
+}
+
+fn files_prompt_keys() {
+    bind pm = st_get("fmode", "")
+    bind dir = st_get("fdir", home_dir())
+    if pm == "delete" {
+        if key_pressed("y") {
+            bind p = files_sel_path()
+            if fs_delete(p) > 0.5 {
+                st_set("fmsg", "deleted " + p)
+                st_set("fsel", max(st_get("fsel", 0.0) - 1.0, 0.0))
+            } else {
+                st_set("fmsg", "could not delete " + p + " (folders must be empty; the image's built-in files stay)")
+            }
+            st_set("fmode", "")
+        }
+        if key_pressed("n") { st_set("fmode", "") }
+        return 0.0
+    }
+    typed_into("fprompt", "")
+    bind pre = st_get("fprompt_pre", "")
+    bind now = st_get("fprompt", "")
+    if pre != "" {
+        # the prefilled name is replaced by the first characters typed
+        if str_len(now) > str_len(pre) && str_starts_with(now, pre) { st_set("fprompt", str_slice(now, str_len(pre), str_len(now) - str_len(pre))) }
+        if now != pre { st_set("fprompt_pre", "") }
+    }
+    if key_pressed("enter") {
+        bind name = str_trim(st_get("fprompt", ""))
+        if name != "" && str_find(name, "/") < 0.0 {
+            bind dst = files_join(dir, name)
+            if pm == "mkdir" {
+                if fs_mkdir(dst) > 0.5 { st_set("fmsg", "created " + dst) } else { st_set("fmsg", "could not create " + dst) }
+            } else {
+                bind src = files_sel_path()
+                if dst == src {
+                    st_set("fmsg", "")
+                } else if file_exists(dst) {
+                    st_set("fmsg", dst + " exists already")
+                } else if fs_rename(src, dst) > 0.5 {
+                    st_set("fmsg", "renamed to " + dst)
+                } else {
+                    st_set("fmsg", "could not rename " + src + " (the image's built-in files stay)")
+                }
+            }
+        }
+        st_set("fmode", "")
+    }
+    return 0.0
 }
 
 fn files_row_at(mx, my) {
@@ -2243,7 +2386,7 @@ bind start = do {
                 } else if st_get("pkgs_win", 0.0) > 0.5 && st_get("focus", "") == "packages" {
                     st_set("pkgs_win", 0.0)
                 } else if st_get("files", 0.0) > 0.5 && st_get("focus", "") == "files" {
-                    st_set("files", 0.0)
+                    if st_get("fmode", "") != "" { st_set("fmode", "") } else { st_set("files", 0.0) }
                 } else if st_get("term_win", 0.0) > 0.5 && st_get("focus", "") == "terminal" {
                     st_set("term_win", 0.0)
                 } else if st_get("set_win", 0.0) > 0.5 && st_get("focus", "") == "settings" {
@@ -2304,6 +2447,9 @@ bind start = do {
                 pk_keep_visible()
             } else if st_get("files", 0.0) > 0.5 && st_get("focus", "") == "files" {
                 bind nf = len(files_items()) / 2.0
+                if st_get("fmode", "") != "" {
+                    files_prompt_keys()
+                } else {
                 if key_pressed("down") { st_set("fsel", min(st_get("fsel", 0.0) + 1.0, max(nf - 1.0, 0.0))) }
                 if key_pressed("up") { st_set("fsel", max(st_get("fsel", 0.0) - 1.0, 0.0)) }
                 if key_pressed("enter") { files_activate(st_get("fsel", 0.0)) }
@@ -2318,12 +2464,28 @@ bind start = do {
                         bind cut = key_pressed("x")
                         st_set("clip", p)
                         st_set("clip_cut", sel(cut, 1.0, 0.0))
+                        clipboard_set(p)
                         st_set("fmsg", sel(cut, "cut: ", "copied: ") + p + "   (v pastes into the open folder)")
+                    }
+                }
+                if key_pressed("r") || key_pressed("n") {
+                    bind p = files_sel_path()
+                    if key_pressed("n") {
+                        st_set("fmode", "mkdir")
+                        st_set("fprompt", "New folder")
+                        st_set("fprompt_pre", "New folder")
+                        text_poll()
+                    } else if p != "" {
+                        st_set("fmode", "rename")
+                        st_set("fprompt", fs_basename(p))
+                        st_set("fprompt_pre", fs_basename(p))
+                        text_poll()
                     }
                 }
                 if key_pressed("v") && st_get("clip", "") != "" {
                     bind src = st_get("clip", "")
                     bind dst = files_join(st_get("fdir", home_dir()), fs_basename(src))
+                    if file_exists(dst) && dst != src { bind dst = files_join(st_get("fdir", home_dir()), "copy of " + fs_basename(src)) }
                     bind cut = st_get("clip_cut", 0.0) > 0.5
                     bind ok = 0.0
                     if cut { bind ok = fs_move(src, dst) } else { bind ok = fs_copy(src, dst) }
@@ -2337,13 +2499,10 @@ bind start = do {
                 if key_pressed("delete") {
                     bind p = files_sel_path()
                     if p != "" {
-                        if fs_delete(p) > 0.5 {
-                            st_set("fmsg", "deleted " + p)
-                            st_set("fsel", max(st_get("fsel", 0.0) - 1.0, 0.0))
-                        } else {
-                            st_set("fmsg", "could not delete " + p + " (folders must be empty; only removable media can be deleted from)")
-                        }
+                        st_set("fmode", "delete")
+                        st_set("fmsg", "")
                     }
+                }
                 }
                 files_keep_visible()
             } else {
@@ -2663,12 +2822,31 @@ fn term_keys() {
     bind i = 0.0
     while i < str_len(pend) {
         bind ch = str_slice(pend, i, 1.0)
-        if ch == "\n" { bind run = true }
+        if ch == "\n" {
+            # Enter inside a burst of typing (a paste, a slow frame): run what
+            # came before it now; the rest starts the next line
+            st_set("term_in", "")
+            term_run(str_trim(buf))
+            bind buf = ""
+        }
         else if str_find(PRINTABLE, ch) >= 0.0 { bind buf = buf + ch }
         bind i = i + 1.0
     }
     if key_pressed("backspace") && str_len(buf) > 0.0 { bind buf = str_slice(buf, 0.0, str_len(buf) - 1.0) }
     if key_pressed("up") { bind buf = st_get("term_last", buf) }
+    if key_down("ctrl") && key_pressed("v") {
+        bind clip = clipboard_get()
+        bind j = 0.0
+        while j < str_len(clip) {
+            bind ch = str_slice(clip, j, 1.0)
+            if str_find(PRINTABLE, ch) >= 0.0 { bind buf = buf + ch }
+            bind j = j + 1.0
+        }
+    }
+    if key_down("ctrl") && key_pressed("c") {
+        bind lines = st_get("term_lines", [])
+        if len(lines) > 0.5 { clipboard_set(list_get(lines, len(lines) - 1.0)) }
+    }
     st_set("term_in", buf)
     if run {
         st_set("term_in", "")
