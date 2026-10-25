@@ -685,7 +685,7 @@ fn settings_tab_network(x, cx, cy, mx, my) {
     }
     wifi_pill(cx + 340.0, cy + 36.0, 100.0, "Apply", mx, my, true)
     bind ip = os_info("ip")
-    t8(cx, cy + 176.0, C_DIM, "now: " + sel(ip == "", "no address", ip) + sel(static, "  (static)", "  (DHCP unless a static address is set)"))
+    t8(cx, cy + 176.0, C_DIM, "now: " + sel(ip == "", "no address", ip) + sel(static, "  (static)", "  (DHCP unless a static address is set)") + "  via " + os_info("network"))
     bind msg = st_get("net_msg", "")
     if msg != "" { t8(cx, cy + 194.0, C_TEXT, str_slice(msg, 0.0, 64.0)) }
     # The hardware addresses, for a router's static lease or allow list.
