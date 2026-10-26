@@ -803,6 +803,7 @@ fn settings_tab_system(cx, cy, mx, my) {
     tray_button(cx + 450.0, by + 192.0, 40.0, "+", mx, my)
     tray_button(cx, by + 232.0, 110.0, "Restart", mx, my)
     tray_button(cx + 120.0, by + 232.0, 110.0, "Shut down", mx, my)
+    toggle(cx, by + 316.0, os_ssh(), "SSH + SFTP server on port 22:  ssh " + os_user() + "@" + sel(os_info("ip") == "", "<address>", os_info("ip")), mx, my)
     t8(cx, by + 270.0, C_TEXT, "Keyring")
     t8(cx + 120.0, by + 270.0, C_DIM, str_slice(os_keyring(), 0.0, 52.0))
     t8(cx + 120.0, by + 288.0, C_DIM, "Private/ files, the Horizon profile and chats are sealed with it")
@@ -886,6 +887,7 @@ fn settings_click(mx, my, w, h) {
         if inside(mx, my, cx + 160.0, by, 150.0, 24.0) { os_setup() }
         if inside(mx, my, cx + 320.0, by, 110.0, 24.0) { os_console("") }
         if !ready && inside(mx, my, cx, by + 34.0, 230.0, 24.0) { os_console("sd format") }
+        if inside(mx, my, cx, by + 316.0, 560.0, 22.0) { os_ssh_set(sel(os_ssh(), 0.0, 1.0)) }
         if inside(mx, my, cx, by + 128.0, 560.0, 22.0) {
             st_set("perf", sel(st_get("perf", 0.0) > 0.5, 0.0, 1.0))
             settings_apply()
