@@ -431,7 +431,18 @@ fn login_submit() {
             st_set("login_pass", "")
             st_set("login_pass2", "")
         } else {
-            st_set("login_msg", "could not create the account (name taken, or storage not writable)")
+            # the account exists after all (or storage refused): show the real list
+            bind now_users = os_users()
+            st_set("login_users", now_users)
+            if len(now_users) > 0.5 {
+                st_set("login_user", user)
+                st_set("login_pass", "")
+                st_set("login_pass2", "")
+                st_set("login_focus", "login_pass")
+                st_set("login_msg", "that account exists -- sign in with its password")
+            } else {
+                st_set("login_msg", "could not create the account: LingOS storage is not writable")
+            }
         }
         return 0.0
     }
@@ -460,7 +471,8 @@ fn login_submit() {
         st_set("locked", 0.0)
         st_set("login_pass", "")
     } else {
-        st_set("login_msg", "wrong password")
+        bind why = os_login_error()
+        st_set("login_msg", sel(why == "", "wrong password", why))
         st_set("login_pass", "")
     }
     return 0.0
