@@ -1399,7 +1399,7 @@ fn files_activate(i) {
     bind k = file_kind(nm)
     if k == "audio" {
         bind m = music_load(full)
-        if m < 0.0 { st_set("fmsg", "could not decode " + nm + " (WAV only)") } else { music_play(m)  st_set("fmsg", "playing " + nm) }
+        if m < 0.0 { st_set("fmsg", "could not decode " + nm + " (WAV, OGG and FLAC play; not MP3 / MIDI yet)") } else { music_play(m)  st_set("fmsg", "playing " + nm) }
         return 0.0
     }
     if k == "video" {
