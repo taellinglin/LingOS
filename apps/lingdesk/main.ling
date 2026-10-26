@@ -388,6 +388,7 @@ bind LOGIN_H = 320.0
 
 fn lock_screen() {
     os_lock()
+    st_set("login_show", 0.0)
     bind users = os_users()
     st_set("login_users", users)
     # No account yet: a blank name to type. Otherwise the signed-in (or first) user, password next.
@@ -496,18 +497,22 @@ fn login_frame(w, h, mx, my, click) {
     t8(x + 24.0, fy + 9.0, C_TEXT, "User")
     bind hot0 = text_box(x + 120.0, fy, LOGIN_W - 144.0, "login_user", focus == "login_user", false, mx, my)
     t8(x + 24.0, fy + 45.0, C_TEXT, "Password")
-    bind hot1 = text_box(x + 120.0, fy + 36.0, LOGIN_W - 144.0, "login_pass", focus == "login_pass", true, mx, my)
+    bind hidden = st_get("login_show", 0.0) < 0.5
+    bind hot1 = text_box(x + 120.0, fy + 36.0, LOGIN_W - 144.0, "login_pass", focus == "login_pass", hidden, mx, my)
     bind hot2 = false
     if creating || resetting {
         t8(x + 24.0, fy + 81.0, C_TEXT, "Again")
-        bind hot2 = text_box(x + 120.0, fy + 72.0, LOGIN_W - 144.0, "login_pass2", focus == "login_pass2", true, mx, my)
+        bind hot2 = text_box(x + 120.0, fy + 72.0, LOGIN_W - 144.0, "login_pass2", focus == "login_pass2", hidden, mx, my)
     } else if len(users) > 1.5 {
         t8(x + 24.0, fy + 78.0, C_DIM, "Up / Down: other users")
     }
     bind by = y + LOGIN_H - 64.0
     bind bhot = wifi_pill(x + LOGIN_W - 24.0 - 120.0, by, 120.0, sel(creating, "Create", sel(resetting, "Set", "Sign in")), mx, my, true)
     t8(x + 24.0, by + 9.0, sel(st_get("login_msg", "") == "", C_DIM, C_BAD), sel(st_get("login_msg", "") == "", "Enter: continue   Tab: next field", st_get("login_msg", "")))
-    t8(x + 24.0, y + LOGIN_H - 24.0, C_DIM, "passwords are stored Argon2id-hashed on the SD card")
+    # show / hide what is typed (Ctrl+S or a click): check what the keyboard really sends
+    bind showhot = inside(mx, my, x + 24.0, y + LOGIN_H - 30.0, 200.0, 18.0)
+    t8(x + 24.0, y + LOGIN_H - 24.0, sel(showhot, C_TEXT, C_DIM), sel(hidden, "[ show password ]  Ctrl+S", "[ hide password ]  Ctrl+S"))
+    if (click && showhot) || (key_down("ctrl") && key_pressed("s")) { st_set("login_show", sel(hidden, 1.0, 0.0)) }
     if click {
         if hot0 && creating {
             st_set("login_focus", "login_user")
