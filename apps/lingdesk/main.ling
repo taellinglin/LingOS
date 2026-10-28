@@ -388,6 +388,19 @@ bind LOGIN_H = 320.0
 
 fn lock_screen() {
     os_lock()
+    return sign_in_screen()
+}
+
+# The idle lock: the sign-in screen only. The keyring stays open, so services and
+# apps (Messenger, a wallet node) keep reading and writing their sealed files.
+fn idle_lock(r) {
+    # an app that had the screen was parked for the lock: it comes back after sign-in
+    bind running = os_apps_running()
+    if r && len(running) > 0.5 { st_set("resume_app", list_get(running, len(running) - 1.0)) }
+    return sign_in_screen()
+}
+
+fn sign_in_screen() {
     st_set("login_show", 0.0)
     bind users = os_users()
     st_set("login_users", users)
@@ -429,6 +442,7 @@ fn login_submit() {
         }
         if os_user_create(user, pass) {
             st_set("locked", 0.0)
+            st_set("signed_in_now", 1.0)
             st_set("login_pass", "")
             st_set("login_pass2", "")
         } else {
@@ -461,6 +475,7 @@ fn login_submit() {
         }
         if os_user_reset(user, pass) {
             st_set("locked", 0.0)
+            st_set("signed_in_now", 1.0)
             st_set("login_pass", "")
             st_set("login_pass2", "")
         } else {
@@ -471,6 +486,7 @@ fn login_submit() {
     }
     if os_login(user, pass) {
         st_set("locked", 0.0)
+        st_set("signed_in_now", 1.0)
         st_set("login_pass", "")
     } else {
         bind why = os_login_error()
@@ -550,10 +566,150 @@ fn login_frame(w, h, mx, my, click) {
 }
 
 # ── Settings ─────────────────────────────────────────────────────────────────
-bind SET_TABS = ["Appearance", "Dock", "Sound", "Network", "System"]
+bind SET_TABS = ["Appearance", "Dock", "Sound", "Network", "System", "Startup"]
 
 fn settings_path() {
     return fs_join(fs_join(fs_join(fs_home(), "Programs"), "LingOS"), "desktop.conf")
+}
+
+# ── Startup: sign-in apps (per user) and the idle lock ─────────────────────
+bind LOCK_CHOICES = [0.0, 1.0, 5.0, 10.0, 15.0, 30.0, 60.0]
+
+fn autostart_path() {
+    return fs_join(fs_join(fs_join(fs_home(), "Programs"), "LingOS"), "autostart")
+}
+
+fn autostart_list() {
+    bind out = []
+    bind lines = str_split(read_file(autostart_path()), "\n")
+    bind i = 0.0
+    while i < len(lines) {
+        bind ln = str_trim(list_get(lines, i))
+        if ln != "" { bind out = list_push(out, ln) }
+        bind i = i + 1.0
+    }
+    return out
+}
+
+fn autostart_toggle(app) {
+    bind cur = autostart_list()
+    bind text = ""
+    bind i = 0.0
+    while i < len(cur) {
+        if list_get(cur, i) != app { bind text = text + list_get(cur, i) + "\n" }
+        bind i = i + 1.0
+    }
+    if !list_has(cur, app) { bind text = text + app + "\n" }
+    fs_mkdir(fs_join(fs_home(), "Programs"))
+    fs_mkdir(fs_join(fs_join(fs_home(), "Programs"), "LingOS"))
+    write_file(autostart_path(), text)
+    return 0.0
+}
+
+# Right after a sign-in: the app the idle lock parked comes back; on the first
+# sign-in of this boot, the user's sign-in apps start in the background
+# (Alt+Tab or the dock brings them up).
+fn after_sign_in() {
+    st_set("signed_in_now", 0.0)
+    settings_load()
+    bind back = st_get("resume_app", "")
+    if back != "" {
+        st_set("resume_app", "")
+        if list_has(os_apps_running(), back) { os_app_resume(back) }
+        return 0.0
+    }
+    bind key = "autostarted:" + os_user()
+    if st_get(key, 0.0) > 0.5 { return 0.0 }
+    st_set(key, 1.0)
+    bind have = os_apps()
+    bind list = autostart_list()
+    bind i = 0.0
+    while i < len(list) {
+        bind a = list_get(list, i)
+        if list_has(have, a) && !list_has(os_apps_running(), a) { os_app_start_bg(a) }
+        bind i = i + 1.0
+    }
+    return 0.0
+}
+
+fn app_name_label(a) {
+    bind k = 0.0
+    while k < len(APP_KIND) {
+        if list_get(APP_KIND, k) == "app:" + a { return list_get(APP_LABEL, k) }
+        bind k = k + 1.0
+    }
+    return a
+}
+
+fn service_label(s) {
+    if s == "ssh" { return "SSH + SFTP server" }
+    return app_name_label(s)
+}
+
+fn lock_label(m) {
+    if m < 0.5 { return "never" }
+    if m >= 60.0 { return "1 hour" }
+    return num_str(m) + " min"
+}
+
+fn settings_tab_startup(cx, cy, mx, my) {
+    bind m = st_get("lock_after", 10.0)
+    t8(cx, cy, C_TEXT, "Lock the screen after")
+    t8(cx + 200.0, cy, C_DIM, lock_label(m) + sel(m < 0.5, "", " without input"))
+    tray_button(cx + 400.0, cy - 6.0, 40.0, "-", mx, my)
+    tray_button(cx + 450.0, cy - 6.0, 40.0, "+", mx, my)
+    t8(cx, cy + 18.0, C_DIM, "Locked, services and apps keep running; sign in to come back.")
+    t8(cx, cy + 48.0, C_TEXT, "At boot (before sign-in)")
+    t8(cx + 270.0, cy + 48.0, C_TEXT, "When " + sel(os_user() == "", "you", os_user()) + " signs in")
+    bind svcs = os_services()
+    bind i = 0.0
+    while i < len(svcs) {
+        bind s = list_get(svcs, i)
+        bind on = os_service_enabled(s)
+        toggle(cx, cy + 70.0 + i * 26.0, on, str_slice(service_label(s), 0.0, 24.0), mx, my)
+        if os_service_running(s) { px_rrect(cx + 250.0, cy + 77.0 + i * 26.0, 8.0, 8.0, 4.0, C_GOOD) }
+        bind i = i + 1.0
+    }
+    bind apps = os_apps()
+    bind auto = autostart_list()
+    bind j = 0.0
+    while j < len(apps) {
+        bind a = list_get(apps, j)
+        toggle(cx + 270.0, cy + 70.0 + j * 26.0, list_has(auto, a), str_slice(app_name_label(a), 0.0, 26.0), mx, my)
+        bind j = j + 1.0
+    }
+    bind ny = cy + 80.0 + max(len(svcs), len(apps)) * 26.0
+    t8(cx, ny, C_DIM, "Boot programs run without a window (a dot: running now).")
+    t8(cx, ny + 16.0, C_DIM, "Sign-in apps start in the background: Alt+Tab or the dock brings them up.")
+    return 0.0
+}
+
+fn settings_click_startup(mx, my, cx, cy) {
+    bind m = st_get("lock_after", 10.0)
+    bind idx = 3.0
+    bind q = 0.0
+    while q < len(LOCK_CHOICES) {
+        if list_get(LOCK_CHOICES, q) == m { bind idx = q }
+        bind q = q + 1.0
+    }
+    if inside(mx, my, cx + 400.0, cy - 6.0, 40.0, 24.0) && idx > 0.5 { st_set("lock_after", list_get(LOCK_CHOICES, idx - 1.0))  settings_apply()  settings_save() }
+    if inside(mx, my, cx + 450.0, cy - 6.0, 40.0, 24.0) && idx + 1.0 < len(LOCK_CHOICES) { st_set("lock_after", list_get(LOCK_CHOICES, idx + 1.0))  settings_apply()  settings_save() }
+    bind svcs = os_services()
+    bind i = 0.0
+    while i < len(svcs) {
+        if inside(mx, my, cx, cy + 70.0 + i * 26.0, 260.0, 22.0) {
+            bind s = list_get(svcs, i)
+            os_service_set(s, !os_service_enabled(s))
+        }
+        bind i = i + 1.0
+    }
+    bind apps = os_apps()
+    bind j = 0.0
+    while j < len(apps) {
+        if inside(mx, my, cx + 270.0, cy + 70.0 + j * 26.0, 270.0, 22.0) { autostart_toggle(list_get(apps, j)) }
+        bind j = j + 1.0
+    }
+    return 0.0
 }
 
 fn settings_load() {
@@ -576,6 +732,7 @@ fn settings_load() {
                 if len(parts) > 1.5 && os_display_set(to_number(list_get(parts, 0.0)), to_number(list_get(parts, 1.0))) { st_set("res", v) }
             }
             if k == "net_mode" { st_set("net_mode", v) }
+            if k == "lock_after" { st_set("lock_after", to_number(v)) }
             if k == "net_ip" { st_set("net_ip", v) }
             if k == "net_mask" { st_set("net_mask", v) }
             if k == "net_gw" { st_set("net_gw", v) }
@@ -591,6 +748,7 @@ fn settings_load() {
 fn settings_apply() {
     os_option("pause_audio", st_get("pause_audio", 1.0) > 0.5)
     os_option("perf", st_get("perf", 0.0) > 0.5)
+    os_lock_after(st_get("lock_after", 10.0) * 60.0)
     if st_get("net_mode", "dhcp") == "static" {
         st_set("net_msg", os_net_set("static", st_get("net_ip", ""), st_get("net_mask", ""), st_get("net_gw", ""), st_get("net_dns", "")))
     }
@@ -611,7 +769,7 @@ fn net_prefill() {
 fn settings_save() {
     fs_mkdir(fs_join(fs_home(), "Programs"))
     fs_mkdir(fs_join(fs_join(fs_home(), "Programs"), "LingOS"))
-    write_file(settings_path(), "accent=" + num_str(st_get("accent", 4.0)) + "\ndock_auto=" + num_str(st_get("dock_auto", 1.0)) + "\npause_audio=" + num_str(st_get("pause_audio", 1.0)) + "\nperf=" + num_str(st_get("perf", 0.0)) + "\ntz=" + num_str(st_get("tz", 0.0)) + "\nkbd=" + num_str(os_kbd_layout()) + "\nres=" + st_get("res", "") + "\nnet_mode=" + st_get("net_mode", "dhcp") + "\nnet_ip=" + st_get("net_ip", "") + "\nnet_mask=" + st_get("net_mask", "") + "\nnet_gw=" + st_get("net_gw", "") + "\nnet_dns=" + st_get("net_dns", "") + "\n")
+    write_file(settings_path(), "accent=" + num_str(st_get("accent", 4.0)) + "\ndock_auto=" + num_str(st_get("dock_auto", 1.0)) + "\npause_audio=" + num_str(st_get("pause_audio", 1.0)) + "\nperf=" + num_str(st_get("perf", 0.0)) + "\ntz=" + num_str(st_get("tz", 0.0)) + "\nkbd=" + num_str(os_kbd_layout()) + "\nres=" + st_get("res", "") + "\nnet_mode=" + st_get("net_mode", "dhcp") + "\nnet_ip=" + st_get("net_ip", "") + "\nnet_mask=" + st_get("net_mask", "") + "\nnet_gw=" + st_get("net_gw", "") + "\nnet_dns=" + st_get("net_dns", "") + "\nlock_after=" + num_str(st_get("lock_after", 10.0)) + "\n")
     return 0.0
 }
 
@@ -667,6 +825,7 @@ fn settings_window(mx, my) {
     if tab == 2.0 { settings_tab_sound(cx, cy, mx, my) }
     if tab == 3.0 { settings_tab_network(x, cx, cy, mx, my) }
     if tab == 4.0 { settings_tab_system(cx, cy, mx, my) }
+    if tab == 5.0 { settings_tab_startup(cx, cy, mx, my) }
     return 0.0
 }
 
@@ -925,6 +1084,7 @@ fn settings_click(mx, my, w, h) {
             win_raise("about")
         }
     }
+    if tab == 5.0 { settings_click_startup(mx, my, cx, cy) }
     return 0.0
 }
 
@@ -2355,9 +2515,14 @@ bind start = do {
         bind down = mouse_down()
         bind click = down && !prev_down
         bind prev_down = down
+        bind lock_req = os_lock_requested()
+        if st_get("locked", 0.0) < 0.5 && os_user() != "" && (lock_req || (os_lock_after() > 0.5 && os_idle_secs() >= os_lock_after())) {
+            idle_lock(lock_req)
+        }
         if st_get("locked", 0.0) > 0.5 {
             login_frame(w, h, mx, my, click)
             present()
+            if st_get("locked", 0.0) < 0.5 && st_get("signed_in_now", 0.0) > 0.5 { after_sign_in() }
         } else {
             bind menu_open = st_get("menu", 0.0) > 0.5
             bind about_open = st_get("about", 0.0) > 0.5
