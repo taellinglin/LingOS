@@ -1,0 +1,8 @@
+# Ling Wallet's node isolate on LingOS: `thread_spawn("isolates/node.ling", "node_main", args)`
+# runs this built-in program (iso.rs), which calls node_main with the spawn arguments.
+use "../../../ling-wallet/ling/isolates/node.ling"
+
+bind main = do {
+    bind a = isolate_args()
+    node_main(list_get(a, 0), list_get(a, 1), list_get(a, 2), list_get(a, 3), list_get(a, 4), list_get(a, 5), list_get(a, 6), list_get(a, 7))
+}

@@ -1,0 +1,7 @@
+# Ling Wallet's wallet isolate on LingOS (see iso_node.ling).
+use "../../../ling-wallet/ling/isolates/walletd.ling"
+
+bind main = do {
+    bind a = isolate_args()
+    wallet_main(list_get(a, 0), list_get(a, 1), list_get(a, 2), list_get(a, 3), list_get(a, 4), list_get(a, 5), list_get(a, 6))
+}

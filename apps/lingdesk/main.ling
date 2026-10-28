@@ -37,13 +37,13 @@ bind TOP_H = 30.0
 bind TB = 28.0                 # TITLEBAR_H
 
 # Apps: dock letter, label, action ("app:<name>" = built-in app).
-bind APP_GLYPH = ["L", "D", "F", ">", "W", "A", "S", "i", "M", "P", "H", "@", "T"]
-bind APP_LABEL = ["LingStationX (music studio)", "LingDev (game editor)", "Files", "Console (full screen)", "Wi-Fi networks", "HDMI audio test", "Settings", "About LingOS", "LingModeler (3D, vector, rigging)", "Packages (lingfu)", "Horizon (web browser)", "Messenger (LAN chat)", "Terminal"]
-bind APP_KIND = ["app:lingstation", "app:lingdev", "files", "console", "wifi", "console:hdmiaudio", "settings", "about", "app:lingmodeler", "packages", "app:horizon", "app:messenger", "terminal"]
+bind APP_GLYPH = ["L", "D", "F", ">", "W", "A", "S", "i", "M", "P", "H", "@", "T", "$"]
+bind APP_LABEL = ["LingStationX (music studio)", "LingDev (game editor)", "Files", "Console (full screen)", "Wi-Fi networks", "HDMI audio test", "Settings", "About LingOS", "LingModeler (3D, vector, rigging)", "Packages (lingfu)", "Horizon (web browser)", "Messenger (LAN chat)", "Terminal", "Ling Wallet (LNG node, miner)"]
+bind APP_KIND = ["app:lingstation", "app:lingdev", "files", "console", "wifi", "console:hdmiaudio", "settings", "about", "app:lingmodeler", "packages", "app:horizon", "app:messenger", "terminal", "app:wallet"]
 
 # Applications menu rows: "#header" or an app index. Installed lingfu
 # packages follow as "#Installed" + indices past the built-ins (menu_rows()).
-bind MENU_ROWS = ["#Sound & Video", "0", "5", "#Development", "1", "8", "#Internet", "10", "11", "4", "#Accessories", "2", "12", "3", "#System", "9", "6", "7"]
+bind MENU_ROWS = ["#Sound & Video", "0", "5", "#Development", "1", "8", "#Internet", "10", "11", "4", "#Accessories", "2", "12", "3", "#System", "9", "6", "7", "#Finance", "13"]
 bind PK_W = 660.0
 bind PK_H = 440.0
 bind PK_ROW = 30.0

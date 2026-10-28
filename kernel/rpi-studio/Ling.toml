@@ -46,3 +46,23 @@ includes = ["assets/font.ttf", "assets/home.html"]
 entry = "../../apps/messenger/main.ling"
 root = "../../../LingStationX"
 includes = ["assets/font.ttf"]
+
+[app.wallet]
+# Ling Wallet (../ling-wallet): wallet, full node and HyperTorus miner. The UI is the real app; its
+# node, wallet and miner isolates are the iso_* programs below (thread_spawn runs them as green
+# threads). Chain and keys live in the user's home: Programs/LingWallet/mainnet.
+entry = "../../../ling-wallet/ling/main.ling"
+root = "../../../ling-wallet"
+includes = ["ling/assets/fonts/*", "ling/assets/*.lwseeds"]
+
+[app.iso_node]
+entry = "../../apps/wallet/iso_node.ling"
+root = "../../../ling-wallet"
+
+[app.iso_walletd]
+entry = "../../apps/wallet/iso_walletd.ling"
+root = "../../../ling-wallet"
+
+[app.iso_miner]
+entry = "../../apps/wallet/iso_miner.ling"
+root = "../../../ling-wallet"
