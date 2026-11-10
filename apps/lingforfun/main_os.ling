@@ -1,0 +1,59 @@
+# FLY for FUN (../LingForFun) on LingOS: the real client, compiled into the image.
+# The game itself is untouched -- this only supplies what its desktop launcher
+# (client/play.ps1) prepends to the source: an empty website session (a desktop
+# launch is logged out; the boot gate asks for name + password) and the
+# native-desktop flag display.ling reads. Its assets live on the data disk
+# under home/<user>/Programs/LingForFun/assets (copied by
+# live/lingforfun-assets.py), which relative reads resolve to.
+
+바인드 웹세션이름 = ""
+바인드 웹세션토큰 = ""
+바인드 __lffNative = st_set("native_desktop", 1.0)
+# the kernel has hyper_warp (drivers/g3d_host.rs): models stand on the ground the lens draws
+바인드 __lffHyperWarp = st_set("eng_hyper_warp", 1.0)
+# the kernel g3d has the pfx_* particle system (pixel kinds 3-7 from kernel build #5)
+바인드 __lffParticles = st_set("eng_particles", 1.0)
+
+# The Raspberry Pi 5 profile (this game only; another program starts at the kernel defaults): the client
+# reads st "lingos_pi" to lock its anti-aliasing / FXAA / depth-of-field / bloom off, the 3-D viewport
+# renders at half resolution and is upscaled 2x (the UI, text, labels and mouse stay in native window
+# pixels), and the kernel renderer draws none of those four effects.
+fn __lff_pi_profile() {
+    if str_contains(os_platform(), "rpi") {
+        st_set("lingos_pi", 1.0)
+        st_set("fxaa_on", 0.0)
+        st_set("dof_on", 0.0)
+        g3d_scale(0.5)
+    }
+    return 0.0
+}
+바인드 __lffPi = __lff_pi_profile()
+
+# The x86 profile: the 3-D renders at the frame's full resolution (the kernel's
+# automatic half-scale made the world blocky; it has the cores to spare), and
+# the frame starts at a fixed 720p unless the in-game Settings saved another
+# choice -- the game's automatic resolution judged the CPU by the loading
+# screen's first frames (1 fps) and dropped to 540p. The HUD stays in display
+# pixels either way (the kernel's ui_begin layer), so it matches the Windows
+# client at any render height.
+fn __lff_x86_profile() {
+    if str_contains(os_platform(), "rpi") {
+        return 0.0
+    }
+    st_set("cfg.res", 720.0)
+    g3d_scale(1.0)
+    return 0.0
+}
+바인드 __lffX86 = __lff_x86_profile()
+
+# An Esc the game does not use parks it (back to the desktop, still running: the
+# taskbar and Task Manager list it) instead of LingOS closing it.
+fn __lff_esc_parks() {
+    os_option("esc_minimizes", 1.0)
+    return 0.0
+}
+바인드 __lffEsc = __lff_esc_parks()
+# (no "render_auto": its CPU-bound probing flips 720p/900p/1080p every few
+# seconds here; LingOS keeps the frame at 720p, scaled to the screen)
+
+use "../../../LingForFun/client/src/생성"
